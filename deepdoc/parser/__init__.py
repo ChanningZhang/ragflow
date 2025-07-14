@@ -15,6 +15,7 @@
 #
 
 from .pdf_parser import RAGFlowPdfParser as PdfParser, PlainParser
+from .monkeyocr_parser import MonkeyOCRParser
 from .docx_parser import RAGFlowDocxParser as DocxParser
 from .excel_parser import RAGFlowExcelParser as ExcelParser
 from .ppt_parser import RAGFlowPptParser as PptParser
@@ -26,6 +27,7 @@ from .txt_parser import RAGFlowTxtParser as TxtParser
 __all__ = [
     "PdfParser",
     "PlainParser",
+    "MonkeyOCRParser",
     "DocxParser",
     "ExcelParser",
     "PptParser",

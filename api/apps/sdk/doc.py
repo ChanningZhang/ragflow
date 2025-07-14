@@ -171,6 +171,56 @@ def upload(dataset_id, tenant_id):
     return get_result(data=renamed_doc_list)
 
 
+@manager.route("/datasets/<dataset_id>/documents/register", methods=["POST"])  # noqa: F821
+@token_required
+def register(dataset_id, tenant_id):
+    req = request.json
+    
+    # 验证请求体存在
+    if not req:
+        return get_error_data_result(message="Request body is required!", code=settings.RetCode.ARGUMENT_ERROR)
+    
+    # 验证必要参数
+    required_fields = ["filename", "location", "size"]
+    for field in required_fields:
+        if field not in req:
+            return get_error_data_result(message=f"`{field}` is required!", code=settings.RetCode.ARGUMENT_ERROR)
+    
+    # 验证文件名不为空
+    if not req["filename"] or not req["filename"].strip():
+        return get_error_data_result(message="Filename cannot be empty!", code=settings.RetCode.ARGUMENT_ERROR)
+    
+    # 验证文件名长度
+    if len(req["filename"].encode("utf-8")) > FILE_NAME_LEN_LIMIT:
+        return get_error_data_result(message=f"File name must be {FILE_NAME_LEN_LIMIT} bytes or less.", code=settings.RetCode.ARGUMENT_ERROR)
+    
+    # 验证文件大小
+    if not isinstance(req["size"], int) or req["size"] <= 0:
+        return get_error_data_result(message="File size must be a positive integer!", code=settings.RetCode.ARGUMENT_ERROR)
+    
+    # 验证数据集存在性和权限
+    # if not KnowledgebaseService.accessible(kb_id=dataset_id, user_id=tenant_id):
+    #     return get_error_data_result(message=f"You don't own the dataset {dataset_id}.")
+    
+    e, kb = KnowledgebaseService.get_by_id(dataset_id)
+    if not e:
+        raise LookupError(f"Can't find the dataset with ID {dataset_id}!")
+    
+    try:
+        # 调用文件服务注册文档
+        doc = FileService.register_document(kb, req["filename"], req["location"], req["size"], tenant_id)
+                
+        if isinstance(doc, str):
+            return get_error_data_result(message=f"Document registration failed: {doc}")
+      
+        doc["run"] = "UNSTART"
+        
+        return get_result(data=doc)
+            
+    except Exception as e:
+        logging.exception(e)
+        return get_error_data_result(message=f"Document registration failed: {str(e)}")
+
 @manager.route("/datasets/<dataset_id>/documents/<document_id>", methods=["PUT"])  # noqa: F821
 @token_required
 def update_doc(tenant_id, dataset_id, document_id):

@@ -458,6 +458,80 @@ class FileService(CommonService):
                 err.append(file.filename + ": " + str(e))
 
         return err, files
+    
+    @classmethod
+    @DB.connection_context()
+    def register_document(self, kb, filename, location, size, user_id):
+        root_folder = self.get_root_folder(user_id)
+        pf_id = root_folder["id"]
+        self.init_knowledgebase_docs(pf_id, user_id)
+        kb_root_folder = self.get_kb_folder(user_id)
+        kb_folder = self.new_a_file_from_kb(kb.tenant_id, kb.name, kb_root_folder["id"])
+
+        try:
+            doc_id = get_uuid()
+            
+            # Parse source location to extract bucket and object name
+            source_bucket, source_object = self._parse_source_location(location)
+            
+            # Generate destination location in target bucket
+            dest_bucket = kb.id
+            dest_object = filename
+            
+            # Ensure unique destination object name
+            while STORAGE_IMPL.obj_exist(dest_bucket, dest_object):
+                dest_object += "_"
+            
+            # Copy file from source to destination using MinIO server-side copy
+            copy_result = STORAGE_IMPL.copy_object(
+                source_bucket=source_bucket,
+                source_object=source_object,
+                dest_bucket=dest_bucket,
+                dest_object=dest_object
+            )
+            
+            if copy_result is None:
+                raise RuntimeError(f"Failed to copy file from {source_bucket}/{source_object} to {dest_bucket}/{dest_object}")
+            
+            filetype = filename_type(filename)
+            doc = {
+                "id": doc_id,
+                "kb_id": kb.id,
+                "parser_id": self.get_parser(filetype, filename, kb.parser_id),
+                "parser_config": kb.parser_config,
+                "created_by": user_id,
+                "type": filetype,
+                "name": filename,
+                "location": dest_object,
+                "size": size,
+            }
+            DocumentService.insert(doc)
+
+            FileService.add_file_from_kb(doc, kb_folder["id"], kb.tenant_id)
+            return doc
+        except Exception as e:
+            return str(e)
+    
+    @classmethod
+    def _parse_source_location(cls, location):
+        """
+        Parse source location to extract bucket and object name.
+        
+        Args:
+            location (str): Source location in format "bucket/object_name" or "object_name"
+            
+        Returns:
+            tuple: (source_bucket, source_object)
+        """
+        if "/" in location:
+            # Format: "bucket/object_name"
+            parts = location.split("/", 1)
+            return parts[0], parts[1]
+        else:
+            # Format: "object_name" - assume it's in a default bucket
+            # You may need to adjust this based on your specific requirements
+            raise ValueError("Location must be in format 'bucket/object_name'")
+    
 
     @staticmethod
     def parse_docs(file_objs, user_id):

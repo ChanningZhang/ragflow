@@ -14,6 +14,7 @@
 #  limitations under the License.
 #
 
+import os
 import logging
 import re
 from functools import reduce
@@ -28,7 +29,7 @@ from tika import parser
 
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
-from deepdoc.parser import DocxParser, ExcelParser, HtmlParser, JsonParser, MarkdownParser, PdfParser, TxtParser
+from deepdoc.parser import DocxParser, ExcelParser, HtmlParser, JsonParser, MarkdownParser, PdfParser, TxtParser, MonkeyOCRParser
 from deepdoc.parser.figure_parser import VisionFigureParser, vision_figure_parser_figure_data_wrapper
 from deepdoc.parser.pdf_parser import PlainParser, VisionParser
 from rag.nlp import concat_img, find_codec, naive_merge, naive_merge_with_images, naive_merge_docx, rag_tokenizer, tokenize_chunks, tokenize_chunks_with_images, tokenize_table
@@ -438,11 +439,16 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         else:
             if layout_recognizer == "Plain Text":
                 pdf_parser = PlainParser()
+            elif layout_recognizer == "MonkeyOCR":
+                # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
+                monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
+                timeout = int(os.environ.get('MONKEYOCR_TIMEOUT', '300'))
+                pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout)
             else:
                 vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
                 pdf_parser = VisionParser(vision_model=vision_model, **kwargs)
 
-            sections, tables = pdf_parser(filename if not binary else binary, from_page=from_page, to_page=to_page,
+            sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
                                           callback=callback)
             res = tokenize_table(tables, doc, is_english)
             callback(0.8, "Finish parsing.")
@@ -512,13 +518,27 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             "file type not supported yet(pdf, xlsx, doc, docx, txt supported)")
 
     st = timer()
-    if section_images:
-        # if all images are None, set section_images to None
-        if all(image is None for image in section_images):
-            section_images = None
-
-    if section_images:
-        chunks, images = naive_merge_with_images(sections, section_images,
+    
+    # 检查是否有图片信息（MonkeyOCR 和 Markdown 的情况）
+    has_images = False
+    if layout_recognizer == "MonkeyOCR" and sections:
+        # MonkeyOCR 返回的 sections 格式是 [(text, image), ...]
+        has_images = any(isinstance(section[1], Image.Image) for section in sections if len(section) > 1)
+    elif section_images:
+        # Markdown 的情况
+        has_images = any(image is not None for image in section_images)
+    
+    if has_images:
+        if layout_recognizer == "MonkeyOCR":
+            # MonkeyOCR: sections 格式是 [(text, image), ...]
+            texts = [section[0] for section in sections]
+            images = [section[1] if len(section) > 1 else None for section in sections]
+        else:
+            # Markdown: 使用预处理的 section_images
+            texts = [section[0] for section in sections]
+            images = section_images
+            
+        chunks, images = naive_merge_with_images(texts, images,
                                         int(parser_config.get(
                                             "chunk_token_num", 128)), parser_config.get(
                                             "delimiter", "\n!?。；！？"))

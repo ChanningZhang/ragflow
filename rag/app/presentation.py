@@ -15,6 +15,7 @@
 #
 
 import copy
+import os
 import re
 from io import BytesIO
 
@@ -23,6 +24,7 @@ from PIL import Image
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
 from deepdoc.parser.pdf_parser import VisionParser
+from deepdoc.parser import MonkeyOCRParser
 from rag.nlp import tokenize, is_english
 from rag.nlp import rag_tokenizer
 from deepdoc.parser import PdfParser, PptParser, PlainParser
@@ -126,13 +128,21 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             res.append(d)
         return res
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
-        layout_recognizer = kwargs.get("layout_recognize", "DeepDOC")
+        parser_config = kwargs.get("parser_config", {})
+        layout_recognizer = parser_config.get("layout_recognize", "DeepDOC")
         if layout_recognizer == "DeepDOC":
             pdf_parser = Pdf()
             sections = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
         elif layout_recognizer == "Plain Text":
             pdf_parser = PlainParser()
             sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
+        elif layout_recognizer == "MonkeyOCR":
+            # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
+            monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
+            timeout = int(os.environ.get('MONKEYOCR_TIMEOUT', '300'))
+            pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout)
+            sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
+                                      callback=callback)
         else:
             vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
             pdf_parser = VisionParser(vision_model=vision_model, **kwargs)

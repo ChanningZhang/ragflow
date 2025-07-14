@@ -1,4 +1,3 @@
-
 include:
   - ./docker-compose-base.yml
 
@@ -34,12 +33,23 @@ services:
       - ../history_data_agent:/ragflow/history_data_agent
       - ./service_conf.yaml.template:/ragflow/conf/service_conf.yaml.template
       - ./entrypoint.sh:/ragflow/entrypoint.sh
-
+      - ../api/apps/sdk/doc.py:/ragflow/api/apps/sdk/doc.py
+      - ../api/db/services/file_service.py:/ragflow/api/db/services/file_service.py
+      - ../rag/utils/minio_conn.py:/ragflow/rag/utils/minio_conn.py
+      - ../rag/svr/task_executor.py:/ragflow/rag/svr/task_executor.py
+      - ../deepdoc/parser/monkeyocr_parser.py:/ragflow/deepdoc/parser/monkeyocr_parser.py
+      - ../deepdoc/parser/__init__.py:/ragflow/deepdoc/parser/__init__.py
+      - ../rag/app/naive.py:/ragflow/rag/app/naive.py
+      - ../rag/app/presentation.py:/ragflow/rag/app/presentation.py
+      - ../rag/nlp/__init__.py:/ragflow/rag/nlp/__init__.py
+      - ../api/db/services/document_service.py:/ragflow/api/db/services/document_service.py
     env_file: .env
     environment:
       - TZ=${TIMEZONE}
       - HF_ENDPOINT=${HF_ENDPOINT}
       - MACOS=${MACOS}
+      - MONKEYOCR_URL=${MONKEYOCR_URL:-http://host.docker.internal:6006}
+      - MONKEYOCR_TIMEOUT=${MONKEYOCR_TIMEOUT:-300}
     networks:
       - ragflow
     restart: on-failure

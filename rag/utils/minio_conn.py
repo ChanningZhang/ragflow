@@ -128,3 +128,35 @@ class RAGFlowMinio:
         except Exception:
             logging.exception(f"Fail to remove bucket {bucket}")
 
+    def copy_object(self, source_bucket, source_object, dest_bucket, dest_object):
+        """
+        Copy an object from source bucket to destination bucket within MinIO server.
+        This operation is performed server-side without downloading to application memory.
+        
+        Args:
+            source_bucket (str): Source bucket name
+            source_object (str): Source object name/path
+            dest_bucket (str): Destination bucket name
+            dest_object (str): Destination object name/path
+        
+        Returns:
+            Object copy result or None if failed
+        """
+        for _ in range(3):
+            try:
+                # Ensure destination bucket exists
+                if not self.conn.bucket_exists(dest_bucket):
+                    self.conn.make_bucket(dest_bucket)
+                
+                # Use MinIO copy_object API for server-side copy
+                from minio.commonconfig import CopySource
+                
+                copy_source = CopySource(source_bucket, source_object)
+                result = self.conn.copy_object(dest_bucket, dest_object, copy_source)
+                return result
+            except Exception:
+                logging.exception(f"Fail to copy {source_bucket}/{source_object} to {dest_bucket}/{dest_object}:")
+                self.__open__()
+                time.sleep(1)
+        return None
+
