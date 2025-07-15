@@ -28,7 +28,8 @@ class DocumentContentService(CommonService):
     @classmethod
     @DB.connection_context()
     def create_document_content(cls, doc_id, markdown=None, monkeyocr_middle_json=None, 
-                               monkeyocr_content_list=None, file_path=None, file_name=None):
+                               monkeyocr_content_list=None, monkeyocr_image_locations=None, 
+                               file_path=None, file_name=None):
         """
         创建文档内容记录
         
@@ -37,6 +38,7 @@ class DocumentContentService(CommonService):
             markdown: Markdown 文件内容
             monkeyocr_middle_json: MonkeyOCR 中间 JSON 数据
             monkeyocr_content_list: MonkeyOCR 内容列表数据
+            monkeyocr_image_locations: MonkeyOCR 图片位置数组（对象结构: {image_name, location}）
             file_path: 原始文件路径
             file_name: 文件名
             
@@ -56,6 +58,7 @@ class DocumentContentService(CommonService):
                 "markdown": markdown,
                 "monkeyocr_middle_json": monkeyocr_middle_json,
                 "monkeyocr_content_list": monkeyocr_content_list,
+                "monkeyocr_image_locations": monkeyocr_image_locations,
                 "file_path": file_path,
                 "file_name": file_name or (os.path.basename(file_path) if file_path else None),
                 "content_size": content_size
@@ -157,11 +160,57 @@ class DocumentContentService(CommonService):
                 "total_size": sum(c.content_size for c in contents),
                 "has_markdown": any(c.markdown for c in contents),
                 "has_middle_json": any(c.monkeyocr_middle_json for c in contents),
-                "has_content_list": any(c.monkeyocr_content_list for c in contents)
+                "has_content_list": any(c.monkeyocr_content_list for c in contents),
+                "has_image_locations": any(c.monkeyocr_image_locations for c in contents),
+                "total_images": sum(len(c.monkeyocr_image_locations) if c.monkeyocr_image_locations else 0 for c in contents)
             }
             
             return stats
             
         except Exception as e:
             logging.error(f"获取文档内容统计信息失败: {e}")
-            return {} 
+            return {}
+
+    @classmethod
+    @DB.connection_context()
+    def get_image_locations_by_doc_id(cls, doc_id):
+        """
+        根据文档ID获取图片位置对象数组
+        
+        Args:
+            doc_id: 文档ID
+            
+        Returns:
+            List[dict]: 图片位置对象数组
+        """
+        try:
+            contents = cls.get_by_doc_id(doc_id)
+            image_locations = []
+            for content in contents:
+                if content.monkeyocr_image_locations:
+                    image_locations.extend(content.monkeyocr_image_locations)
+            return image_locations
+        except Exception as e:
+            logging.error(f"获取图片位置失败: {e}")
+            return []
+
+    @classmethod
+    @DB.connection_context()
+    def update_image_locations(cls, content_id, image_locations):
+        """
+        更新文档内容的图片位置
+        
+        Args:
+            content_id: 内容记录ID
+            image_locations: 图片位置对象数组
+            
+        Returns:
+            bool: 更新是否成功
+        """
+        try:
+            cls.update_by_id(content_id, {"monkeyocr_image_locations": image_locations})
+            logging.info(f"成功更新图片位置: {content_id}")
+            return True
+        except Exception as e:
+            logging.error(f"更新图片位置失败: {e}")
+            return False 

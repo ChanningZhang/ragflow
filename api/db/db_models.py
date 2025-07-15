@@ -850,6 +850,7 @@ class DocumentContent(DataBaseModel):
     markdown = LongTextField(null=True, help_text="Markdown 文件内容")
     monkeyocr_middle_json = JSONField(null=True, help_text="MonkeyOCR 中间 JSON 数据")
     monkeyocr_content_list = JSONField(null=True, help_text="MonkeyOCR 内容列表数据")
+    monkeyocr_image_locations = JSONField(null=True, help_text="MonkeyOCR 图片位置数组，对象结构: {image_name, location}")
     file_path = CharField(max_length=512, null=True, help_text="原始文件路径")
     file_name = CharField(max_length=255, null=True, help_text="文件名")
     content_size = IntegerField(default=0, help_text="内容大小（字节）")

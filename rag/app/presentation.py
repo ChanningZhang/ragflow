@@ -15,6 +15,7 @@
 #
 
 import copy
+import logging
 import os
 import re
 from io import BytesIO
@@ -140,7 +141,10 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
             monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
             timeout = int(os.environ.get('MONKEYOCR_TIMEOUT', '300'))
-            pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout)
+            # 从kwargs中获取kb_id
+            kb_id = kwargs.get('kb_id')
+            pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout, kb_id=kb_id)
+            logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}, KB ID: {kb_id}")
             sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
                                       callback=callback)
         else:

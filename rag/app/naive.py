@@ -447,8 +447,10 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                 # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
                 monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
                 timeout = int(os.environ.get('MONKEYOCR_TIMEOUT', '300'))
-                pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout)
-                logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}")
+                # 从kwargs中获取kb_id
+                kb_id = kwargs.get('kb_id')
+                pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout, kb_id=kb_id)
+                logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}, KB ID: {kb_id}")
                 
                 # 解析文档
                 sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
@@ -467,12 +469,12 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             
             # 详细记录sections信息
             logging.info(f"PDF parsing completed - Total sections: {len(sections)}")
-            for i, section in enumerate(sections):
-                if len(section) > 1 and section[1]:  # 有图片列表
-                    logging.info(f"Section {i}: Text length: {len(section[0])}, Images: {len(section[1])}")
-                    logging.info(f"Section {i} text preview: {section[0][:100]}...")
-                else:
-                    logging.info(f"Section {i}: Text length: {len(section[0])}, No images")
+            # for i, section in enumerate(sections):
+            #     if len(section) > 1 and section[1]:  # 有图片列表
+            #         logging.info(f"Section {i}: Text length: {len(section[0])}, Images: {len(section[1])}")
+            #         logging.info(f"Section {i} text preview: {section[0][:100]}...")
+            #     else:
+            #         logging.info(f"Section {i}: Text length: {len(section[0])}, No images")
             
             res = tokenize_table(tables, doc, is_english)
             callback(0.8, "Finish parsing.")
@@ -566,20 +568,20 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             # 详细记录每个section的图片信息
             for i, (text, img_list) in enumerate(zip(texts, image_lists)):
                 if img_list:
-                    logging.info(f"Section {i}: {len(img_list)} images, text preview: {text[:50]}...")
+                    logging.debug(f"Section {i}: {len(img_list)} images, text preview: {text[:50]}...")
                     for j, img in enumerate(img_list):
                         if hasattr(img, 'size'):
-                            logging.info(f"  Image {j}: size={img.size}")
+                            logging.debug(f"  Image {j}: size={img.size}")
                         else:
-                            logging.info(f"  Image {j}: type={type(img)}")
+                            logging.debug(f"  Image {j}: type={type(img)}")
                         
                         # 尝试获取图片的文件名信息（如果有的话）
                         if hasattr(img, 'filename'):
-                            logging.info(f"  Image {j} filename: {img.filename}")
+                            logging.debug(f"  Image {j} filename: {img.filename}")
                         elif hasattr(img, 'info') and img.info:
-                            logging.info(f"  Image {j} info: {img.info}")
+                            logging.debug(f"  Image {j} info: {img.info}")
                 else:
-                    logging.info(f"Section {i}: no images, text preview: {text[:50]}...")
+                    logging.debug(f"Section {i}: no images, text preview: {text[:50]}...")
             
             chunks, images = naive_merge_with_monkeyocr_images(texts, image_lists, pdf_parser,
                                             int(parser_config.get(
@@ -591,10 +593,10 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             # 详细记录每个chunk的信息
             for i, (chunk, img) in enumerate(zip(chunks, images)):
                 if img:
-                    logging.info(f"Chunk {i}: has image (size={img.size}), text length: {len(chunk)}")
-                    logging.info(f"Chunk {i} text preview: {chunk[:100]}...")
+                    logging.debug(f"Chunk {i}: has image (size={img.size}), text length: {len(chunk)}")
+                    logging.debug(f"Chunk {i} text preview: {chunk[:100]}...")
                 else:
-                    logging.info(f"Chunk {i}: no image, text length: {len(chunk)}")
+                    logging.debug(f"Chunk {i}: no image, text length: {len(chunk)}")
             
             if kwargs.get("section_only", False):
                 return chunks

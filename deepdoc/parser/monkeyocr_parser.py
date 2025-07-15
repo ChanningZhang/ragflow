@@ -159,17 +159,17 @@ class MonkeyOCRResultParser:
             if not paragraph.strip():
                 continue
             
-            logging.info(f"Processing paragraph {i}: {paragraph[:100]}...")
+            logging.debug(f"Processing paragraph {i}: {paragraph[:100]}...")
             
             # 查找段落中的图片引用
             images, image_paths = self._extract_images_from_paragraph(paragraph, image_files, middle_json_data)
             
             # 如果发现图片，记录段落索引
             if images:
-                logging.info(f"Paragraph {i} contains {len(images)} images")
+                logging.debug(f"Paragraph {i} contains {len(images)} images")
                 for j, img_path in enumerate(image_paths):
                     page_info = self._get_image_page_info(img_path, middle_json_data)
-                    logging.info(f"  Image {j}: {img_path} (from {page_info})")
+                    logging.debug(f"  Image {j}: {img_path} (from {page_info})")
             
             # 清理Markdown语法，保留纯文本
             clean_text = self._clean_markdown_syntax(paragraph)
@@ -177,12 +177,12 @@ class MonkeyOCRResultParser:
             if clean_text.strip():
                 # 不合并图片，直接返回图片列表，让chunk级别处理
                 sections.append((clean_text.strip(), images))
-                logging.info(f"Added section {len(sections)-1}: text_len={len(clean_text.strip())}, images={len(images)}")
+                logging.debug(f"Added section {len(sections)-1}: text_len={len(clean_text.strip())}, images={len(images)}")
             else:
                 # 如果清理后文本为空但有图片，仍然添加一个包含图片的片段
                 if images:
                     sections.append(("{图片}", images))
-                    logging.info(f"Added image-only section {len(sections)-1}: {len(images)} images")
+                    logging.debug(f"Added image-only section {len(sections)-1}: {len(images)} images")
         
         # 将表格添加到sections中（保持与RAGFlow格式一致）
         for table_text in tables:
@@ -365,8 +365,8 @@ class MonkeyOCRResultParser:
         matches = self.image_pattern.findall(paragraph)
         
         if matches:
-            logging.info(f"Found {len(matches)} image references in paragraph: {[path for _, path in matches]}")
-            logging.info(f"Paragraph text preview: {paragraph[:200]}...")
+            logging.debug(f"Found {len(matches)} image references in paragraph: {[path for _, path in matches]}")
+            logging.debug(f"Paragraph text preview: {paragraph[:200]}...")
         
         for alt_text, image_path in matches:
             logging.debug(f"Processing image reference: {image_path}")
@@ -594,7 +594,7 @@ class MonkeyOCRResultParser:
                                                         "bottom": bbox[3]
                                                     })
                                                     
-                                                    logging.info(f"Added position for {matched_path}: page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
+                                                    logging.debug(f"Added position for {matched_path}: page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
                                                 else:
                                                     logging.debug(f"Skipped duplicate position for {matched_path} on page {page_idx}")
             
@@ -625,7 +625,7 @@ class MonkeyOCRResultParser:
                                                         "bottom": bbox[3]
                                                     })
                                                     
-                                                    logging.info(f"Added position for {matched_path} (from images): page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
+                                                    logging.debug(f"Added position for {matched_path} (from images): page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
         
         return positions
     
@@ -698,8 +698,8 @@ class MonkeyOCRResultParser:
             return self._combine_images_vertical(images)
         
         # 详细记录输入信息
-        for i, (img, pos) in enumerate(zip(images, positions)):
-            logging.info(f"Input {i}: image_size={img.size}, position={pos}")
+        # for i, (img, pos) in enumerate(zip(images, positions)):
+        #     logging.info(f"Input {i}: image_size={img.size}, position={pos}")
         
         try:
             # 按位置排序（先按页面，再按top，最后按left）
@@ -709,8 +709,8 @@ class MonkeyOCRResultParser:
             positions = list(positions)
             
             logging.info("After sorting by position:")
-            for i, (img, pos) in enumerate(zip(images, positions)):
-                logging.info(f"Sorted {i}: image_size={img.size}, position={pos}")
+            # for i, (img, pos) in enumerate(zip(images, positions)):
+            #     logging.info(f"Sorted {i}: image_size={img.size}, position={pos}")
             
             # 检查是否有跨页面的图片
             pages = set(pos["page_idx"] for pos in positions)
@@ -769,10 +769,10 @@ class MonkeyOCRResultParser:
                 paste_y = max(0, min(y, int(canvas_height) - target_height))
                 
                 # 记录关键信息
-                logging.info(f"Image {i+1}: Position check")
-                logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
-                logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
-                logging.info(f"  Final position: ({paste_x}, {paste_y})")
+                # logging.info(f"Image {i+1}: Position check")
+                # logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
+                # logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
+                # logging.info(f"  Final position: ({paste_x}, {paste_y})")
                 
                 if paste_x != x or paste_y != y:
                     logging.warning(f"  ⚠️  Position adjusted: ({x}, {y}) -> ({paste_x}, {paste_y})")
@@ -865,8 +865,8 @@ class MonkeyOCRResultParser:
                 converted_positions.append(converted_pos)
                 converted_images.append(img)
                 
-                logging.info(f"Converted image from page {page_idx}: original_bbox={pos['bbox']}, converted_bbox={converted_pos['bbox']}")
-                logging.info(f"  Page relative position: X={pos['left']}/{page_width} ({pos['left']/page_width*100:.1f}%)")
+                # logging.info(f"Converted image from page {page_idx}: original_bbox={pos['bbox']}, converted_bbox={converted_pos['bbox']}")
+                # logging.info(f"  Page relative position: X={pos['left']}/{page_width} ({pos['left']/page_width*100:.1f}%)")
             
             # 更新累计高度偏移：加上当前页面的高度
             accumulated_height += page_height
@@ -913,20 +913,20 @@ class MonkeyOCRResultParser:
             # 缩放图片到目标尺寸
             if img.size != (target_width, target_height):
                 resized_img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                logging.info(f"Cross-page image {i+1}: Resized from {img.size} to {resized_img.size}")
+                # logging.info(f"Cross-page image {i+1}: Resized from {img.size} to {resized_img.size}")
             else:
                 resized_img = img
-                logging.info(f"Cross-page image {i+1}: No resize needed, size={img.size}")
+                # logging.info(f"Cross-page image {i+1}: No resize needed, size={img.size}")
             
             # 边界检查：确保图片不超出画布
             paste_x = max(0, min(x, int(canvas_width) - target_width))
             paste_y = max(0, min(y, int(canvas_height) - target_height))
             
             # 记录关键信息
-            logging.info(f"Cross-page image {i+1} (page {pos['page_idx']}): Position check")
-            logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
-            logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
-            logging.info(f"  Final position: ({paste_x}, {paste_y})")
+            # logging.info(f"Cross-page image {i+1} (page {pos['page_idx']}): Position check")
+            # logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
+            # logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
+            # logging.info(f"  Final position: ({paste_x}, {paste_y})")
             
             if paste_x != x or paste_y != y:
                 logging.warning(f"  ⚠️  Position adjusted: ({x}, {y}) -> ({paste_x}, {paste_y})")
@@ -941,13 +941,14 @@ class MonkeyOCRResultParser:
 class MonkeyOCRParser:
     """MonkeyOCR PDF解析器 - 底层解析器，与DeepDOC parser同级"""
     
-    def __init__(self, monkeyocr_url: str = None, timeout: int = None):
+    def __init__(self, monkeyocr_url: str = None, timeout: int = None, kb_id: str = None):
         if monkeyocr_url is None:
             monkeyocr_url = MONKEYOCR_URL
         if timeout is None:
             timeout = MONKEYOCR_TIMEOUT
         self.monkeyocr_url = monkeyocr_url
         self.timeout = timeout
+        self.kb_id = kb_id
     
     def crop(self, text, ZM=3, need_position=False):
         """
@@ -1066,10 +1067,25 @@ class MonkeyOCRParser:
             image_files = {}
             middle_json_data = {}
             content_list_data = None
+            minio_image_locations = []  # 存储MinIO图片位置对象数组
             
             # 调试：打印所有解压的文件
             # print(f"🔍 DEBUG: All extracted files: {list(content.keys())}")
             logging.info(f"All extracted files: {list(content.keys())}")
+            
+            # 导入MinIO工具类
+            try:
+                from rag.utils.storage_factory import STORAGE_IMPL
+                minio_available = True
+                logging.info("MinIO storage available")
+            except ImportError:
+                minio_available = False
+                logging.warning("MinIO storage not available, skipping image upload")
+            
+            # 调试信息
+            logging.info(f"MinIO available: {minio_available}")
+            logging.info(f"KB ID: {self.kb_id}")
+            logging.info(f"Image extensions: {parser.image_extensions}")
             
             for file_path, file_content in content.items():
                 ext = os.path.splitext(file_path)[1].lower()
@@ -1106,8 +1122,24 @@ class MonkeyOCRParser:
                         logging.warning(f"Failed to decode markdown file {file_path}")
                 elif ext in parser.image_extensions:
                     image_files[file_path] = file_content
-                    # print(f"🖼️ DEBUG: Found image file: {file_path}")
                     logging.info(f"Found image file: {file_path}")
+                    
+                    # 上传图片到MinIO
+                    if minio_available and self.kb_id:
+                        try:
+                            import uuid
+                            image_filename = f"monkeyocr_{uuid.uuid4().hex}_{os.path.basename(file_path)}"
+                            STORAGE_IMPL.put(self.kb_id, image_filename, file_content)
+                            minio_path = f"{self.kb_id}/{image_filename}"
+                            minio_image_locations.append({
+                                "image_name": os.path.basename(file_path),
+                                "location": minio_path
+                            })
+                            logging.info(f"Successfully uploaded image to MinIO: {minio_path}")
+                        except Exception as e:
+                            logging.error(f"Failed to upload image {file_path} to MinIO: {e}")
+                    else:
+                        logging.warning(f"Skipping MinIO upload for {file_path}: minio_available={minio_available}, kb_id={self.kb_id}")
             
             # 将数据加载到解析器中
             if middle_json_data:
@@ -1163,9 +1195,13 @@ class MonkeyOCRParser:
             self._position_data = {
                 'middle_json': middle_json_data,
                 'content_list': content_list_data,
-                'image_files': image_files,
+                'image_locations': minio_image_locations,
                 'markdown_files': markdown_files
             }
+            
+            # 调试信息
+            logging.info(f"Final minio_image_locations count: {len(minio_image_locations)}")
+            logging.info(f"Final minio_image_locations: {minio_image_locations}")
             
             # 返回格式与其他PDF解析器一致
             return all_sections, all_tables  # (sections, tables)
@@ -1190,7 +1226,12 @@ class MonkeyOCRParser:
             return position_data['content_list']
         return None
 
-
+    def get_minio_image_locations(self):
+        """获取MinIO图片位置对象数组"""
+        position_data = self.get_position_data()
+        if position_data and 'image_locations' in position_data:
+            return position_data['image_locations']
+        return []
 
     def _save_markdown_files(self, doc_id, position_data):
         """
@@ -1198,7 +1239,7 @@ class MonkeyOCRParser:
         
         Args:
             doc_id: 文档ID
-            position_data: 位置数据，包含 markdown_files
+            position_data: 位置数据，包含 markdown_files 和 image_locations
         """
         if not doc_id:
             logging.warning("doc_id 为空，跳过 Markdown 文件保存")
@@ -1218,6 +1259,7 @@ class MonkeyOCRParser:
             # 获取中间数据
             middle_json_data = position_data.get('middle_json', {})
             content_list_data = position_data.get('content_list', [])
+            image_locations = position_data.get('image_locations', [])
             
             # 保存每个 Markdown 文件
             for file_path, content in markdown_files.items():
@@ -1228,11 +1270,14 @@ class MonkeyOCRParser:
                         markdown=content,
                         monkeyocr_middle_json=middle_json_data,
                         monkeyocr_content_list=content_list_data,
+                        monkeyocr_image_locations=image_locations,
                         file_path=file_path,
                         file_name=os.path.basename(file_path)
                     )
                     
                     logging.info(f"已保存 Markdown 文件: {file_path} (大小: {len(content)} 字符)")
+                    if image_locations:
+                        logging.info(f"关联的图片位置: {image_locations}")
                         
                 except Exception as e:
                     logging.error(f"保存 Markdown 文件 {file_path} 失败: {e}")
@@ -1243,4 +1288,44 @@ class MonkeyOCRParser:
         except Exception as e:
             logging.error(f"保存 Markdown 文件过程中发生错误: {e}")
 
- 
+    def save_image_locations_to_db(self, doc_id):
+        """
+        将图片位置保存到数据库
+        Args:
+            doc_id: 文档ID
+        Returns:
+            bool: 保存是否成功
+        """
+        if not doc_id:
+            logging.warning("doc_id 为空，跳过图片位置保存")
+            return False
+        position_data = self.get_position_data()
+        if not position_data:
+            logging.warning("没有位置数据，跳过图片位置保存")
+            return False
+        image_locations = position_data.get('image_locations', [])
+        if not image_locations:
+            logging.info("没有图片位置，跳过保存")
+            return True
+        try:
+            from api.db.services.document_content_service import DocumentContentService
+            middle_json_data = position_data.get('middle_json', {})
+            content_list_data = position_data.get('content_list', [])
+            content_record = DocumentContentService.create_document_content(
+                doc_id=doc_id,
+                markdown=None,
+                monkeyocr_middle_json=middle_json_data,
+                monkeyocr_content_list=content_list_data,
+                monkeyocr_image_locations=image_locations,
+                file_path="monkeyocr_images",
+                file_name="image_locations"
+            )
+            logging.info(f"成功保存图片位置到数据库: {content_record['id']}")
+            logging.info(f"图片位置: {image_locations}")
+            return True
+        except ImportError as e:
+            logging.error(f"导入 DocumentContentService 失败: {e}")
+            return False
+        except Exception as e:
+            logging.error(f"保存图片位置到数据库失败: {e}")
+            return False 

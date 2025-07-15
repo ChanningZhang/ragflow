@@ -665,7 +665,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
     
     # 记录输入的详细信息
     for i, (text, img_list) in enumerate(zip(texts, image_lists)):
-        logging.info(f"Input section {i}: text_len={len(text)}, images={len(img_list)}")
+        logging.debug(f"Input section {i}: text_len={len(text)}, images={len(img_list)}")
         if img_list:
             for j, img in enumerate(img_list):
                 if hasattr(img, 'size'):
@@ -688,8 +688,8 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
     
     logging.info(f"Total images available: {len(all_images)}")
     logging.info(f"Content list items: {len(content_list)}")
-    for i, item in enumerate(content_list):
-        logging.info(f"Content item {i}: type={item.get('type')}, text_len={len(item.get('text', ''))}")
+    # for i, item in enumerate(content_list):
+    #     logging.info(f"Content item {i}: type={item.get('type')}, text_len={len(item.get('text', ''))}")
     
     current_image_index = 0
     
@@ -702,7 +702,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
             logging.info(f"Skipping empty content paragraph")
             return
         tnum = num_tokens_from_string(content_text)
-        logging.info(f"Processing content paragraph: text_len={len(content_text)}, tokens={tnum}, images={len(content_images)}")
+        # logging.info(f"Processing content paragraph: text_len={len(content_text)}, tokens={tnum}, images={len(content_images)}")
         # 检查是否可以添加到当前chunk
         if cks[-1] == "":
             # 第一个chunk，直接添加
@@ -710,14 +710,14 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
             tk_nums[-1] = tnum
             chunk_image_lists[-1].extend(content_images)
             chunk_image_paths[-1].extend(content_image_paths)
-            logging.info(f"Added to first chunk: {tnum} tokens, {len(content_images)} images")
+            # logging.info(f"Added to first chunk: {tnum} tokens, {len(content_images)} images")
         elif tk_nums[-1] + tnum <= chunk_token_num:
             # 可以添加到当前chunk
             cks[-1] += "\n" + content_text
             tk_nums[-1] += tnum
             chunk_image_lists[-1].extend(content_images)
             chunk_image_paths[-1].extend(content_image_paths)
-            logging.info(f"Added to current chunk: total {tk_nums[-1]} tokens, {len(chunk_image_lists[-1])} images")
+            # logging.info(f"Added to current chunk: total {tk_nums[-1]} tokens, {len(chunk_image_lists[-1])} images")
         else:
             # 需要新开一个chunk
             cks.append(content_text)
@@ -725,7 +725,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
             tk_nums.append(tnum)
             chunk_image_lists.append(content_images[:])
             chunk_image_paths.append(content_image_paths[:])
-            logging.info(f"Created new chunk {len(cks)-1}: {tnum} tokens, {len(content_images)} images")
+            # logging.info(f"Created new chunk {len(cks)-1}: {tnum} tokens, {len(content_images)} images")
     
     # 处理每个content段落
     for i, content_item in enumerate(content_list):
@@ -745,7 +745,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
                     content_images = [all_images[current_image_index]]
                     content_image_paths = [all_images[current_image_index].path if hasattr(all_images[current_image_index], 'path') else None]
                     current_image_index += 1
-                    logging.info(f"Allocated image {current_image_index-1} to text content {i}")
+                    logging.debug(f"Allocated image {current_image_index-1} to text content {i}")
             
             add_chunk_from_content(content_text, content_images, content_image_paths)
         elif content_item.get('type') == 'image':
@@ -757,7 +757,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
                 content_image_paths = [img_path]
                 image_paths.append(img_path)  # 记录图片路径
                 current_image_index += 1
-                logging.info(f"Allocated image {current_image_index-1} to image content {i}: {img_path}")
+                logging.debug(f"Allocated image {current_image_index-1} to image content {i}: {img_path}")
                 # 为图片添加一个占位符文本
                 add_chunk_from_content(f"[img: {os.path.basename(img_path)}]", content_images, content_image_paths)
             else:
@@ -831,7 +831,7 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
     
     # 记录输入的详细信息
     for i, (text, img_list) in enumerate(zip(texts, image_lists)):
-        logging.info(f"Input section {i}: text_len={len(text)}, images={len(img_list)}")
+        logging.debug(f"Input section {i}: text_len={len(text)}, images={len(img_list)}")
         if img_list:
             for j, img in enumerate(img_list):
                 if hasattr(img, 'size'):
@@ -1034,7 +1034,7 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
             for block_i, block in enumerate(preproc_blocks):
                 if block.get("type") == "image":
                     bbox = block.get("bbox", [])
-                    logging.info(f"Page {page_idx} block {block_i}: image block with bbox={bbox}")
+                    logging.debug(f"Page {page_idx} block {block_i}: image block with bbox={bbox}")
                     if len(bbox) == 4:
                         # 查找对应的图片路径
                         for block_item in block.get("blocks", []):
@@ -1054,7 +1054,7 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
                                                 "bottom": bbox[3]
                                             })
                                             seen_paths.add(image_path)
-                                            logging.info(f"Added position for {image_path}: bbox={bbox}, page={page_idx}, page_size={page_size}")
+                                            logging.debug(f"Added position for {image_path}: bbox={bbox}, page={page_idx}, page_size={page_size}")
             
             # 从images数组中提取图片位置（备用，如果preproc_blocks中没有）
             images_array = page_info.get("images", [])
@@ -1063,7 +1063,7 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
             for img_i, img_info in enumerate(images_array):
                 if img_info.get("type") == "image":
                     bbox = img_info.get("bbox", [])
-                    logging.info(f"Page {page_idx} image {img_i}: bbox={bbox}")
+                    logging.debug(f"Page {page_idx} image {img_i}: bbox={bbox}")
                     if len(bbox) == 4:
                         for block_item in img_info.get("blocks", []):
                             for line in block_item.get("lines", []):
@@ -1082,7 +1082,7 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
                                                 "bottom": bbox[3]
                                             })
                                             seen_paths.add(image_path)
-                                            logging.info(f"Added position for {image_path} (from images): bbox={bbox}, page={page_idx}, page_size={page_size}")
+                                            logging.debug(f"Added position for {image_path} (from images): bbox={bbox}, page={page_idx}, page_size={page_size}")
         
         if not all_positions:
             logging.warning("No position information found in middle.json")
@@ -1092,8 +1092,8 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
         all_positions.sort(key=lambda x: (x["page_idx"], x["top"], x["left"]))
         
         logging.info(f"Found {len(all_positions)} unique image positions")
-        for i, pos in enumerate(all_positions):
-            logging.info(f"Position {i+1}: {pos['image_path']} -> bbox={pos['bbox']}")
+        # for i, pos in enumerate(all_positions):
+        #     logging.info(f"Position {i+1}: {pos['image_path']} -> bbox={pos['bbox']}")
         
         # 根据图片路径匹配位置信息
         selected_positions = []
@@ -1106,7 +1106,7 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
                 for pos in all_positions:
                     if pos['image_path'] == img_path or pos['image_path'].endswith(os.path.basename(img_path)):
                         matched_position = pos
-                        logging.info(f"Matched {img_path} to position: {pos['bbox']}")
+                        # logging.info(f"Matched {img_path} to position: {pos['bbox']}")
                         break
                 
                 if matched_position:
