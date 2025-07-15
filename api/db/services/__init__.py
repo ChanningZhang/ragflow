@@ -17,6 +17,7 @@ import re
 from pathlib import PurePath
 
 from .user_service import UserService as UserService
+from .document_content_service import DocumentContentService as DocumentContentService
 
 
 def split_name_counter(filename: str) -> tuple[str, int | None]:

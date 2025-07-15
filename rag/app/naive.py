@@ -32,7 +32,7 @@ from api.db.services.llm_service import LLMBundle
 from deepdoc.parser import DocxParser, ExcelParser, HtmlParser, JsonParser, MarkdownParser, PdfParser, TxtParser, MonkeyOCRParser
 from deepdoc.parser.figure_parser import VisionFigureParser, vision_figure_parser_figure_data_wrapper
 from deepdoc.parser.pdf_parser import PlainParser, VisionParser
-from rag.nlp import concat_img, find_codec, naive_merge, naive_merge_with_images, naive_merge_docx, rag_tokenizer, tokenize_chunks, tokenize_chunks_with_images, tokenize_table
+from rag.nlp import concat_img, find_codec, naive_merge, naive_merge_with_images, naive_merge_with_monkeyocr_images, naive_merge_docx, rag_tokenizer, tokenize_chunks, tokenize_chunks_with_images, tokenize_table
 
 
 class Docx(DocxParser):
@@ -410,6 +410,8 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         if isinstance(layout_recognizer, bool):
             layout_recognizer = "DeepDOC" if layout_recognizer else "Plain Text"
         callback(0.1, "Start to parse.")
+        
+        logging.info(f"PDF parsing started - Layout recognizer: {layout_recognizer}, From page: {from_page}, To page: {to_page}")
 
         if layout_recognizer == "DeepDOC":
             pdf_parser = Pdf()
@@ -439,17 +441,39 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         else:
             if layout_recognizer == "Plain Text":
                 pdf_parser = PlainParser()
+                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
+                                              callback=callback)
             elif layout_recognizer == "MonkeyOCR":
                 # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
                 monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
                 timeout = int(os.environ.get('MONKEYOCR_TIMEOUT', '300'))
                 pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout)
+                logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}")
+                
+                # 解析文档
+                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
+                                              callback=callback)
+                
+                # 保存 Markdown 文件（如果有的话）
+                if hasattr(pdf_parser, '_position_data') and pdf_parser._position_data:
+                    pdf_parser._save_markdown_files(kwargs.get('doc_id'), pdf_parser._position_data)
             else:
                 vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
                 pdf_parser = VisionParser(vision_model=vision_model, **kwargs)
-
-            sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
-                                          callback=callback)
+                
+                # 对于非 MonkeyOCR 的解析器，需要调用解析
+                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
+                                              callback=callback)
+            
+            # 详细记录sections信息
+            logging.info(f"PDF parsing completed - Total sections: {len(sections)}")
+            for i, section in enumerate(sections):
+                if len(section) > 1 and section[1]:  # 有图片列表
+                    logging.info(f"Section {i}: Text length: {len(section[0])}, Images: {len(section[1])}")
+                    logging.info(f"Section {i} text preview: {section[0][:100]}...")
+                else:
+                    logging.info(f"Section {i}: Text length: {len(section[0])}, No images")
+            
             res = tokenize_table(tables, doc, is_english)
             callback(0.8, "Finish parsing.")
 
@@ -522,31 +546,75 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     # 检查是否有图片信息（MonkeyOCR 和 Markdown 的情况）
     has_images = False
     if layout_recognizer == "MonkeyOCR" and sections:
-        # MonkeyOCR 返回的 sections 格式是 [(text, image), ...]
-        has_images = any(isinstance(section[1], Image.Image) for section in sections if len(section) > 1)
+        # MonkeyOCR 返回的 sections 格式是 [(text, image_list), ...]，其中 image_list 是图片列表
+        has_images = any(len(section[1]) > 0 for section in sections if len(section) > 1)
+        logging.info(f"MonkeyOCR image check: has_images={has_images}, sections with images: {sum(1 for section in sections if len(section) > 1 and section[1])}")
     elif section_images:
         # Markdown 的情况
         has_images = any(image is not None for image in section_images)
+        logging.info(f"Markdown image check: has_images={has_images}")
     
     if has_images:
         if layout_recognizer == "MonkeyOCR":
-            # MonkeyOCR: sections 格式是 [(text, image), ...]
+            # MonkeyOCR: sections 格式是 [(text, image_list), ...]，其中 image_list 是图片列表
             texts = [section[0] for section in sections]
-            images = [section[1] if len(section) > 1 else None for section in sections]
+            # 直接使用图片列表，无需转换
+            image_lists = [section[1] if len(section) > 1 else [] for section in sections]
+            
+            logging.info(f"MonkeyOCR: Processing {len(sections)} sections with {sum(1 for img_list in image_lists if img_list)} image lists")
+            
+            # 详细记录每个section的图片信息
+            for i, (text, img_list) in enumerate(zip(texts, image_lists)):
+                if img_list:
+                    logging.info(f"Section {i}: {len(img_list)} images, text preview: {text[:50]}...")
+                    for j, img in enumerate(img_list):
+                        if hasattr(img, 'size'):
+                            logging.info(f"  Image {j}: size={img.size}")
+                        else:
+                            logging.info(f"  Image {j}: type={type(img)}")
+                        
+                        # 尝试获取图片的文件名信息（如果有的话）
+                        if hasattr(img, 'filename'):
+                            logging.info(f"  Image {j} filename: {img.filename}")
+                        elif hasattr(img, 'info') and img.info:
+                            logging.info(f"  Image {j} info: {img.info}")
+                else:
+                    logging.info(f"Section {i}: no images, text preview: {text[:50]}...")
+            
+            chunks, images = naive_merge_with_monkeyocr_images(texts, image_lists, pdf_parser,
+                                            int(parser_config.get(
+                                                "chunk_token_num", 128)), parser_config.get(
+                                                "delimiter", "\n!?。；！？"))
+            
+            logging.info(f"MonkeyOCR: Generated {len(chunks)} chunks with {sum(1 for img in images if img is not None)} images")
+            
+            # 详细记录每个chunk的信息
+            for i, (chunk, img) in enumerate(zip(chunks, images)):
+                if img:
+                    logging.info(f"Chunk {i}: has image (size={img.size}), text length: {len(chunk)}")
+                    logging.info(f"Chunk {i} text preview: {chunk[:100]}...")
+                else:
+                    logging.info(f"Chunk {i}: no image, text length: {len(chunk)}")
+            
+            if kwargs.get("section_only", False):
+                return chunks
+            
+            res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
         else:
             # Markdown: 使用预处理的 section_images
             texts = [section[0] for section in sections]
             images = section_images
             
-        chunks, images = naive_merge_with_images(texts, images,
+            chunks, images = naive_merge_with_images(texts, images,
                                         int(parser_config.get(
                                             "chunk_token_num", 128)), parser_config.get(
                                             "delimiter", "\n!?。；！？"))
-        if kwargs.get("section_only", False):
-            return chunks
-        
-        res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
+            if kwargs.get("section_only", False):
+                return chunks
+            
+            res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
     else:
+        logging.info("No images found, using standard naive_merge")
         chunks = naive_merge(
             sections, int(parser_config.get(
                 "chunk_token_num", 128)), parser_config.get(

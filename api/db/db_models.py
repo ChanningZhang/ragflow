@@ -843,6 +843,21 @@ class Search(DataBaseModel):
         db_table = "search"
 
 
+class DocumentContent(DataBaseModel):
+    """文档内容表，用于存储 MonkeyOCR 解析的 Markdown 文件和中间数据"""
+    id = CharField(max_length=32, primary_key=True)
+    doc_id = CharField(max_length=32, null=False, help_text="文档ID", index=True)
+    markdown = LongTextField(null=True, help_text="Markdown 文件内容")
+    monkeyocr_middle_json = JSONField(null=True, help_text="MonkeyOCR 中间 JSON 数据")
+    monkeyocr_content_list = JSONField(null=True, help_text="MonkeyOCR 内容列表数据")
+    file_path = CharField(max_length=512, null=True, help_text="原始文件路径")
+    file_name = CharField(max_length=255, null=True, help_text="文件名")
+    content_size = IntegerField(default=0, help_text="内容大小（字节）")
+    
+    class Meta:
+        db_table = "document_content"
+
+
 def migrate_db():
     migrator = DatabaseMigrator[settings.DATABASE_TYPE.upper()].value(DB)
     try:

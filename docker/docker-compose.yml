@@ -43,6 +43,9 @@ services:
       - ../rag/app/presentation.py:/ragflow/rag/app/presentation.py
       - ../rag/nlp/__init__.py:/ragflow/rag/nlp/__init__.py
       - ../api/db/services/document_service.py:/ragflow/api/db/services/document_service.py
+      - ../api/db/services/document_content_service.py:/ragflow/api/db/services/document_content_service.py
+      - ../api/db/db_models.py:/ragflow/api/db/db_models.py
+      - ../api/db/services/__init__.py:/ragflow/api/db/services/__init__.py
     env_file: .env
     environment:
       - TZ=${TIMEZONE}

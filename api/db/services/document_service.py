@@ -622,7 +622,8 @@ def doc_upload_and_parse(conversation_id, file_objs, user_id):
             "from_page": 0,
             "to_page": 100000,
             "tenant_id": kb.tenant_id,
-            "lang": kb.language
+            "lang": kb.language,
+            "doc_id": d["id"]
         }
         threads.append(exe.submit(FACTORY.get(d["parser_id"], naive).chunk, d["name"], blob, **kwargs))
 

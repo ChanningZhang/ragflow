@@ -103,6 +103,8 @@ class MonkeyOCRResultParser:
         self.image_pattern = re.compile(r'!\[([^\]]*)\]\(([^)]+)\)')
         self.markdown_extensions = {'.md', '.markdown'}
         self.image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        self.middle_json = None  # 存储middle.json数据
+        self.content_list = None  # 存储content_list.json数据
     
     def extract_zip_content(self, zip_data: bytes) -> Dict[str, bytes]:
         """解压ZIP文件并提取内容"""
@@ -122,9 +124,30 @@ class MonkeyOCRResultParser:
         
         return content
     
-    def parse_markdown_with_images(self, markdown_content: str, image_files: Dict[str, bytes], middle_json_data: Dict = None) -> List[Tuple[str, Optional[Image.Image]]]:
-        """解析Markdown内容，提取文本和关联的图片"""
+    # def get_position_data(self) -> Dict:
+    #     """获取位置数据，用于图片合并"""
+    #     return {
+    #         'middle_json': self.middle_json,
+    #         'content_list': self.content_list
+    #     }
+    
+    def load_content_list(self, content_list_data: List[Dict]):
+        """加载content_list.json数据"""
+        self.content_list = content_list_data
+        logging.info(f"Loaded content_list with {len(content_list_data)} entries")
+    
+    def get_content_list(self) -> List[Dict]:
+        """获取content_list数据"""
+        return self.content_list if self.content_list else []
+    
+    def parse_markdown_with_images(self, markdown_content: str, image_files: Dict[str, bytes], middle_json_data: Dict = None) -> List[Tuple[str, List[Image.Image]]]:
+        """解析Markdown内容，提取文本和关联的图片列表（不合并）"""
         sections = []
+        
+        # 记录可用的图片文件（只在开始时打印一次）
+        if image_files:
+            available_images = list(image_files.keys())
+            logging.info(f"Available images for parsing: {available_images}")
         
         # 分离表格和普通文本
         text_content, tables = self._extract_tables_from_markdown(markdown_content)
@@ -136,26 +159,35 @@ class MonkeyOCRResultParser:
             if not paragraph.strip():
                 continue
             
+            logging.info(f"Processing paragraph {i}: {paragraph[:100]}...")
+            
             # 查找段落中的图片引用
-            images, image_paths = self._extract_images_from_paragraph(paragraph, image_files)
+            images, image_paths = self._extract_images_from_paragraph(paragraph, image_files, middle_json_data)
+            
+            # 如果发现图片，记录段落索引
+            if images:
+                logging.info(f"Paragraph {i} contains {len(images)} images")
+                for j, img_path in enumerate(image_paths):
+                    page_info = self._get_image_page_info(img_path, middle_json_data)
+                    logging.info(f"  Image {j}: {img_path} (from {page_info})")
             
             # 清理Markdown语法，保留纯文本
             clean_text = self._clean_markdown_syntax(paragraph)
             
             if clean_text.strip():
-                # 如果有多个图片，合并它们（在解析阶段就完成拼接）
-                combined_image = self._combine_images(images, image_paths, middle_json_data) if images else None
-                sections.append((clean_text.strip(), combined_image))
+                # 不合并图片，直接返回图片列表，让chunk级别处理
+                sections.append((clean_text.strip(), images))
+                logging.info(f"Added section {len(sections)-1}: text_len={len(clean_text.strip())}, images={len(images)}")
             else:
                 # 如果清理后文本为空但有图片，仍然添加一个包含图片的片段
                 if images:
-                    combined_image = self._combine_images(images, image_paths, middle_json_data)
-                    sections.append(("图片", combined_image))
+                    sections.append(("{图片}", images))
+                    logging.info(f"Added image-only section {len(sections)-1}: {len(images)} images")
         
         # 将表格添加到sections中（保持与RAGFlow格式一致）
         for table_text in tables:
             if table_text.strip():
-                sections.append((table_text.strip(), None))
+                sections.append((table_text.strip(), []))  # 表格没有图片
         
         return sections
     
@@ -289,7 +321,43 @@ class MonkeyOCRResultParser:
         
         return rows
     
-    def _extract_images_from_paragraph(self, paragraph: str, image_files: Dict[str, bytes]) -> Tuple[List[Image.Image], List[str]]:
+    def _get_image_page_info(self, image_path: str, middle_json_data: Dict = None) -> str:
+        """根据图片路径获取页面信息"""
+        if not middle_json_data:
+            return "unknown"
+        
+        # 从图片路径中提取文件名
+        image_filename = os.path.basename(image_path)
+        
+        # 在 middle.json 中查找图片的页面信息
+        for page_info in middle_json_data.get("pdf_info", []):
+            page_idx = page_info.get("page_idx", 0)
+            
+            # 在 preproc_blocks 中查找
+            for block in page_info.get("preproc_blocks", []):
+                if block.get("type") == "image":
+                    for block_item in block.get("blocks", []):
+                        for line in block_item.get("lines", []):
+                            for span in line.get("spans", []):
+                                if span.get("type") == "image":
+                                    span_image_path = span.get("image_path", "")
+                                    if span_image_path and image_filename in span_image_path:
+                                        return f"page_{page_idx}"
+            
+            # 在 images 数组中查找
+            for img_info in page_info.get("images", []):
+                if img_info.get("type") == "image":
+                    for block_item in img_info.get("blocks", []):
+                        for line in block_item.get("lines", []):
+                            for span in line.get("spans", []):
+                                if span.get("type") == "image":
+                                    span_image_path = span.get("image_path", "")
+                                    if span_image_path and image_filename in span_image_path:
+                                        return f"page_{page_idx}"
+        
+        return "unknown"
+
+    def _extract_images_from_paragraph(self, paragraph: str, image_files: Dict[str, bytes], middle_json_data: Dict = None) -> Tuple[List[Image.Image], List[str]]:
         """从段落中提取图片"""
         images = []
         image_paths = []
@@ -297,18 +365,15 @@ class MonkeyOCRResultParser:
         matches = self.image_pattern.findall(paragraph)
         
         if matches:
-            logging.info(f"Found {len(matches)} image references in paragraph")
+            logging.info(f"Found {len(matches)} image references in paragraph: {[path for _, path in matches]}")
+            logging.info(f"Paragraph text preview: {paragraph[:200]}...")
         
         for alt_text, image_path in matches:
-            logging.info(f"Processing image reference: {image_path}")
+            logging.debug(f"Processing image reference: {image_path}")
             
             # 获取图片文件名（不包含路径）
             image_filename = os.path.basename(image_path)
-            logging.info(f"Looking for image filename: {image_filename}")
-            
-            # 可用的图片文件列表
-            available_images = list(image_files.keys())
-            logging.info(f"Available images: {available_images}")
+            logging.debug(f"Looking for image filename: {image_filename}")
             
             # 尝试多种匹配策略
             matched_image = None
@@ -316,14 +381,14 @@ class MonkeyOCRResultParser:
             # 策略1：直接路径匹配
             if image_path in image_files:
                 matched_image = image_path
-                logging.info(f"Direct path match: {image_path}")
+                logging.debug(f"Direct path match: {image_path}")
             
             # 策略2：文件名匹配（忽略前缀）
             elif not matched_image:
                 for file_path in image_files.keys():
                     if file_path.endswith(image_filename):
                         matched_image = file_path
-                        logging.info(f"Filename match: {file_path} -> {image_filename}")
+                        logging.debug(f"Filename match: {file_path} -> {image_filename}")
                         break
             
             # 策略3：文件名匹配（包含前缀）
@@ -331,7 +396,7 @@ class MonkeyOCRResultParser:
                 for file_path in image_files.keys():
                     if os.path.basename(file_path) == image_filename:
                         matched_image = file_path
-                        logging.info(f"Basename match: {file_path} -> {image_filename}")
+                        logging.debug(f"Basename match: {file_path} -> {image_filename}")
                         break
             
             # 策略4：模糊匹配（包含文件名）
@@ -339,7 +404,7 @@ class MonkeyOCRResultParser:
                 for file_path in image_files.keys():
                     if image_filename in file_path:
                         matched_image = file_path
-                        logging.info(f"Fuzzy match: {file_path} contains {image_filename}")
+                        logging.debug(f"Fuzzy match: {file_path} contains {image_filename}")
                         break
             
             if matched_image:
@@ -347,7 +412,17 @@ class MonkeyOCRResultParser:
                     img = Image.open(io.BytesIO(image_files[matched_image])).convert('RGB')
                     images.append(img)
                     image_paths.append(matched_image) # 记录匹配到的图片路径
-                    logging.info(f"Successfully loaded image: {matched_image}")
+                    
+                    # 获取图片的页面信息
+                    page_info = self._get_image_page_info(matched_image, middle_json_data)
+                    
+                    logging.info(f"Successfully loaded image: {matched_image} (from {page_info})")
+                    
+                    # 如果图片来自第二页但出现在早期段落中，发出警告
+                    if page_info == "page_1":  # 第二页（索引从0开始）
+                        logging.warning(f"🔍 PAGE 2 IMAGE found in paragraph: {paragraph[:200]}...")
+                        logging.warning(f"🔍 Image path: {matched_image}")
+                    
                 except Exception as e:
                     logging.warning(f"Failed to load image {matched_image}: {e}")
             else:
@@ -470,20 +545,25 @@ class MonkeyOCRResultParser:
     
     def _extract_image_positions_from_middle(self, middle_json_data: Dict, image_paths: List[str]) -> List[Dict]:
         """
-        从middle.json中提取图片位置信息
+        从middle.json中提取图片位置信息 - 保持原始页面相对坐标
         
         Args:
             middle_json_data: middle.json的解析数据
             image_paths: 图片路径列表
             
         Returns:
-            List[Dict]: 位置信息列表，每个元素包含 {image_path, bbox, page_idx}
+            List[Dict]: 位置信息列表，每个元素包含 {image_path, bbox, page_idx, page_size}
         """
         positions = []
         
         # 遍历所有页面
         for page_info in middle_json_data.get("pdf_info", []):
             page_idx = page_info.get("page_idx", 0)
+            page_size = page_info.get("page_size", [595.3, 841.9])  # 默认A4尺寸
+            page_width = page_size[0] if len(page_size) > 0 else 595.3
+            page_height = page_size[1] if len(page_size) > 1 else 841.9
+            
+            logging.info(f"Processing page {page_idx}, page_size={page_size}")
             
             # 从preproc_blocks中提取图片位置
             for block in page_info.get("preproc_blocks", []):
@@ -500,15 +580,23 @@ class MonkeyOCRResultParser:
                                             # 改进的路径匹配逻辑
                                             matched_path = self._match_image_path(image_path, image_paths)
                                             if matched_path:
-                                                positions.append({
-                                                    "image_path": matched_path,
-                                                    "bbox": bbox,
-                                                    "page_idx": page_idx,
-                                                    "left": bbox[0],
-                                                    "top": bbox[1],
-                                                    "right": bbox[2],
-                                                    "bottom": bbox[3]
-                                                })
+                                                # 检查是否已经添加过（避免重复）
+                                                if not any(pos["image_path"] == matched_path and pos["page_idx"] == page_idx for pos in positions):
+                                                    # 保持原始页面相对坐标
+                                                    positions.append({
+                                                        "image_path": matched_path,
+                                                        "bbox": bbox,  # 保持原始页面相对坐标
+                                                        "page_idx": page_idx,
+                                                        "page_size": [page_width, page_height],
+                                                        "left": bbox[0],
+                                                        "top": bbox[1],
+                                                        "right": bbox[2],
+                                                        "bottom": bbox[3]
+                                                    })
+                                                    
+                                                    logging.info(f"Added position for {matched_path}: page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
+                                                else:
+                                                    logging.debug(f"Skipped duplicate position for {matched_path} on page {page_idx}")
             
             # 从images数组中提取图片位置（备用）
             for img_info in page_info.get("images", []):
@@ -525,15 +613,19 @@ class MonkeyOCRResultParser:
                                             if matched_path:
                                                 # 检查是否已经添加过
                                                 if not any(pos["image_path"] == matched_path for pos in positions):
+                                                    # 保持原始页面相对坐标
                                                     positions.append({
                                                         "image_path": matched_path,
-                                                        "bbox": bbox,
+                                                        "bbox": bbox,  # 保持原始页面相对坐标
                                                         "page_idx": page_idx,
+                                                        "page_size": [page_width, page_height],
                                                         "left": bbox[0],
                                                         "top": bbox[1],
                                                         "right": bbox[2],
                                                         "bottom": bbox[3]
                                                     })
+                                                    
+                                                    logging.info(f"Added position for {matched_path} (from images): page={page_idx}, bbox={bbox}, page_size={[page_width, page_height]}")
         
         return positions
     
@@ -585,7 +677,7 @@ class MonkeyOCRResultParser:
     
     def _combine_images_by_position(self, images: List[Image.Image], positions: List[Dict]) -> Image.Image:
         """
-        根据位置信息合并图片
+        根据位置信息合并图片 - 不缩放，保持原始比例和页面相对位置
         
         Args:
             images: 图片列表
@@ -594,6 +686,8 @@ class MonkeyOCRResultParser:
         Returns:
             Image.Image: 合并后的图片
         """
+        logging.info(f"_combine_images_by_position called with {len(images)} images and {len(positions)} positions")
+        
         if not positions:
             logging.warning("No positions provided, falling back to vertical combination")
             return self._combine_images_vertical(images)
@@ -603,48 +697,88 @@ class MonkeyOCRResultParser:
             logging.warning(f"Images count ({len(images)}) doesn't match positions count ({len(positions)}), falling back to vertical combination")
             return self._combine_images_vertical(images)
         
+        # 详细记录输入信息
+        for i, (img, pos) in enumerate(zip(images, positions)):
+            logging.info(f"Input {i}: image_size={img.size}, position={pos}")
+        
         try:
-            # 计算画布大小
+            # 按位置排序（先按页面，再按top，最后按left）
+            sorted_items = sorted(zip(images, positions), key=lambda x: (x[1]["page_idx"], x[1]["top"], x[1]["left"]))
+            images, positions = zip(*sorted_items)
+            images = list(images)
+            positions = list(positions)
+            
+            logging.info("After sorting by position:")
+            for i, (img, pos) in enumerate(zip(images, positions)):
+                logging.info(f"Sorted {i}: image_size={img.size}, position={pos}")
+            
+            # 检查是否有跨页面的图片
+            pages = set(pos["page_idx"] for pos in positions)
+            if len(pages) > 1:
+                logging.info(f"Cross-page images detected: pages {sorted(pages)}")
+                return self._combine_images_cross_page(images, positions)
+            
+            # 单页面图片：使用完整的页面尺寸作为画布
+            page_width = positions[0]["page_size"][0] if positions[0].get("page_size") else 595.3
+            page_height = positions[0]["page_size"][1] if positions[0].get("page_size") else 841.9
+            
+            # 计算图片的实际位置范围（使用bbox信息）
             min_left = min(pos["left"] for pos in positions)
             min_top = min(pos["top"] for pos in positions)
             max_right = max(pos["right"] for pos in positions)
             max_bottom = max(pos["bottom"] for pos in positions)
             
-            canvas_width = max_right - min_left
+            # 使用统一的画布尺寸计算逻辑（单张和多张图片都一样）
+            canvas_width = max(page_width, max_right)
             canvas_height = max_bottom - min_top
+            
+            logging.info(f"Page size: {page_width} x {page_height}")
+            logging.info(f"Image bounds (using bbox): min_left={min_left}, min_top={min_top}, max_right={max_right}, max_bottom={max_bottom}")
+            logging.info(f"Canvas size: {canvas_width} x {canvas_height}")
             
             # 确保画布尺寸合理
             if canvas_width <= 0 or canvas_height <= 0:
                 logging.warning(f"Invalid canvas size: {canvas_width}x{canvas_height}, falling back to vertical combination")
                 return self._combine_images_vertical(images)
             
+            logging.info(f"Creating canvas with size: {canvas_width} x {canvas_height}")
+            
             # 创建画布
             combined = Image.new('RGB', (int(canvas_width), int(canvas_height)), 'white')
             
-            logging.info(f"Creating canvas with size: {canvas_width} x {canvas_height}")
-            logging.info(f"Canvas bounds: left={min_left}, top={min_top}, right={max_right}, bottom={max_bottom}")
-            
-            # 将图片按位置放置到画布上
+            # 放置图片（保持在页面中的原始位置）
             for i, (img, pos) in enumerate(zip(images, positions)):
-                # 计算在画布上的位置
-                x = int(pos["left"] - min_left)
-                y = int(pos["top"] - min_top)
+                # 使用统一的位置计算逻辑（单张和多张图片都一样）
+                x = int(pos["left"])  # 直接使用页面坐标
+                y = int(pos["top"] - min_top)  # Y坐标相对于最小top值
                 
-                # 调整图片大小以匹配bbox
+                # 计算目标尺寸（使用bbox信息）
                 target_width = int(pos["right"] - pos["left"])
                 target_height = int(pos["bottom"] - pos["top"])
                 
-                logging.info(f"Image {i+1}: placing at ({x}, {y}) with size {target_width}x{target_height}")
-                logging.info(f"  Original bbox: [{pos['left']}, {pos['top']}, {pos['right']}, {pos['bottom']}]")
-                
-                if target_width > 0 and target_height > 0:
-                    # 调整图片大小
+                # 缩放图片到目标尺寸
+                if img.size != (target_width, target_height):
                     resized_img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                    combined.paste(resized_img, (x, y))
+                    logging.info(f"Image {i+1}: Resized from {img.size} to {resized_img.size}")
                 else:
-                    # 如果bbox无效，直接粘贴原图
-                    logging.warning(f"Invalid bbox for image {i+1}, pasting original size")
-                    combined.paste(img, (x, y))
+                    resized_img = img
+                    logging.info(f"Image {i+1}: No resize needed, size={img.size}")
+                
+                # 边界检查：确保图片不超出画布
+                paste_x = max(0, min(x, int(canvas_width) - target_width))
+                paste_y = max(0, min(y, int(canvas_height) - target_height))
+                
+                # 记录关键信息
+                logging.info(f"Image {i+1}: Position check")
+                logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
+                logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
+                logging.info(f"  Final position: ({paste_x}, {paste_y})")
+                
+                if paste_x != x or paste_y != y:
+                    logging.warning(f"  ⚠️  Position adjusted: ({x}, {y}) -> ({paste_x}, {paste_y})")
+                
+                # 粘贴缩放后的图片
+                combined.paste(resized_img, (paste_x, paste_y))
             
             logging.info(f"Successfully combined {len(images)} images using position information")
             return combined
@@ -652,7 +786,157 @@ class MonkeyOCRResultParser:
         except Exception as e:
             logging.error(f"Error in position-based image combination: {e}")
             return self._combine_images_vertical(images)
-
+    
+    def _combine_images_cross_page(self, images: List[Image.Image], positions: List[Dict]) -> Image.Image:
+        """
+        处理跨页面的图片合并 - 使用相对位置计算，不缩放，保持原始比例和页面相对位置
+        
+        核心思路：
+        1. 按页面分组图片
+        2. 计算每个页面内图片的相对位置布局
+        3. 将后续页面的图片坐标转换为相对于前一页底部的位置
+        4. 在统一画布上按转换后的位置放置图片（不缩放）
+        5. 保持图片在各自页面中的相对位置
+        
+        Args:
+            images: 图片列表
+            positions: 位置信息列表
+            
+        Returns:
+            Image.Image: 合并后的图片
+        """
+        logging.info(f"_combine_images_cross_page called with {len(images)} images")
+        
+        # 按页面分组并排序
+        page_groups = {}
+        for img, pos in zip(images, positions):
+            page_idx = pos["page_idx"]
+            if page_idx not in page_groups:
+                page_groups[page_idx] = []
+            page_groups[page_idx].append((img, pos))
+        
+        # 按页面顺序排序
+        sorted_pages = sorted(page_groups.keys())
+        logging.info(f"Page groups: {sorted_pages}")
+        
+        # 计算跨页面的相对位置布局
+        converted_positions = []
+        converted_images = []
+        accumulated_height = 0  # 累计高度偏移
+        max_page_width = 0  # 记录最大页面宽度
+        
+        for page_idx in sorted_pages:
+            page_items = page_groups[page_idx]
+            page_imgs = [item[0] for item in page_items]
+            page_positions = [item[1] for item in page_items]
+            
+            logging.info(f"Processing page {page_idx} with {len(page_imgs)} images, accumulated_height={accumulated_height}")
+            
+            # 获取当前页面的尺寸
+            if page_positions:
+                page_size = page_positions[0]["page_size"]
+                page_width, page_height = page_size[0], page_size[1]
+                max_page_width = max(max_page_width, page_width)
+                logging.info(f"Page {page_idx} size: {page_width} x {page_height}")
+            else:
+                continue
+            
+            # 处理当前页面的每个图片
+            for img, pos in zip(page_imgs, page_positions):
+                # 计算转换后的位置：保持X坐标（页面相对位置），Y坐标加上累计高度偏移
+                converted_pos = {
+                    "image_path": pos["image_path"],
+                    "page_idx": pos["page_idx"],
+                    "page_size": pos["page_size"],
+                    "original_bbox": pos["bbox"],
+                    # 转换后的坐标：X坐标保持不变（保持页面相对位置），Y坐标加上累计高度偏移
+                    "left": pos["left"],  # 保持页面相对位置
+                    "top": pos["top"] + accumulated_height,
+                    "right": pos["right"],  # 保持页面相对位置
+                    "bottom": pos["bottom"] + accumulated_height,
+                    "bbox": [
+                        pos["left"],  # 保持页面相对位置
+                        pos["top"] + accumulated_height,
+                        pos["right"],  # 保持页面相对位置
+                        pos["bottom"] + accumulated_height
+                    ]
+                }
+                
+                converted_positions.append(converted_pos)
+                converted_images.append(img)
+                
+                logging.info(f"Converted image from page {page_idx}: original_bbox={pos['bbox']}, converted_bbox={converted_pos['bbox']}")
+                logging.info(f"  Page relative position: X={pos['left']}/{page_width} ({pos['left']/page_width*100:.1f}%)")
+            
+            # 更新累计高度偏移：加上当前页面的高度
+            accumulated_height += page_height
+            logging.info(f"Updated accumulated_height to {accumulated_height} after page {page_idx}")
+        
+        # 现在使用转换后的位置信息进行拼接
+        if not converted_positions:
+            logging.warning("No converted positions available")
+            return self._combine_images_vertical(images)
+        
+        # 计算整体画布大小 - 基于bbox信息
+        min_left = min(pos["left"] for pos in converted_positions)
+        min_top = min(pos["top"] for pos in converted_positions)
+        
+        # 使用bbox信息计算右边界和底边界
+        max_right = max(pos["right"] for pos in converted_positions)
+        max_bottom = max(pos["bottom"] for pos in converted_positions)
+        
+        # 使用最大页面宽度作为画布宽度，但确保能容纳所有图片
+        canvas_width = max(max_page_width, max_right)
+        canvas_height = max_bottom - min_top
+        
+        logging.info(f"Cross-page canvas (using bbox): {canvas_width} x {canvas_height} (max_page_width: {max_page_width})")
+        logging.info(f"Cross-page bounds: min_left={min_left}, min_top={min_top}, max_right={max_right}, max_bottom={max_bottom}")
+        
+        # 确保画布尺寸合理
+        if canvas_width <= 0 or canvas_height <= 0:
+            logging.warning(f"Invalid canvas size: {canvas_width}x{canvas_height}, falling back to vertical combination")
+            return self._combine_images_vertical(images)
+        
+        # 创建画布
+        combined = Image.new('RGB', (int(canvas_width), int(canvas_height)), 'white')
+        
+        # 按转换后的位置放置图片（保持原始尺寸）
+        for i, (img, pos) in enumerate(zip(converted_images, converted_positions)):
+            # 计算在画布上的位置 - 保持图片在页面中的原始X位置
+            x = int(pos["left"])  # 直接使用转换后的X坐标（保持页面相对位置）
+            y = int(pos["top"] - min_top)  # Y坐标相对于最小top值
+            
+            # 计算目标尺寸（使用bbox信息）
+            target_width = int(pos["right"] - pos["left"])
+            target_height = int(pos["bottom"] - pos["top"])
+            
+            # 缩放图片到目标尺寸
+            if img.size != (target_width, target_height):
+                resized_img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+                logging.info(f"Cross-page image {i+1}: Resized from {img.size} to {resized_img.size}")
+            else:
+                resized_img = img
+                logging.info(f"Cross-page image {i+1}: No resize needed, size={img.size}")
+            
+            # 边界检查：确保图片不超出画布
+            paste_x = max(0, min(x, int(canvas_width) - target_width))
+            paste_y = max(0, min(y, int(canvas_height) - target_height))
+            
+            # 记录关键信息
+            logging.info(f"Cross-page image {i+1} (page {pos['page_idx']}): Position check")
+            logging.info(f"  Target position: ({x}, {y}), Target size: {target_width}x{target_height}")
+            logging.info(f"  Canvas size: {canvas_width}x{canvas_height}")
+            logging.info(f"  Final position: ({paste_x}, {paste_y})")
+            
+            if paste_x != x or paste_y != y:
+                logging.warning(f"  ⚠️  Position adjusted: ({x}, {y}) -> ({paste_x}, {paste_y})")
+            
+            # 粘贴缩放后的图片
+            combined.paste(resized_img, (paste_x, paste_y))
+        
+        logging.info(f"Cross-page combination completed: final size={combined.size}")
+        return combined
+    
 
 class MonkeyOCRParser:
     """MonkeyOCR PDF解析器 - 底层解析器，与DeepDOC parser同级"""
@@ -781,6 +1065,7 @@ class MonkeyOCRParser:
             markdown_files = {}
             image_files = {}
             middle_json_data = {}
+            content_list_data = None
             
             # 调试：打印所有解压的文件
             # print(f"🔍 DEBUG: All extracted files: {list(content.keys())}")
@@ -791,11 +1076,27 @@ class MonkeyOCRParser:
                 
                 if ext == ".json":
                     try:
-                        middle_json_data = json.loads(file_content.decode('utf-8'))
-                        # print(f"📄 DEBUG: Found middle.json file: {file_path}")
-                        logging.info(f"Found middle.json file: {file_path}")
+                        json_data = json.loads(file_content.decode('utf-8'))
+                        filename = os.path.basename(file_path)
+                        if filename.endswith('_middle.json'):
+                            middle_json_data = json_data
+                            # print(f"📄 DEBUG: Found middle.json file: {file_path}")
+                            logging.info(f"Found middle.json file: {file_path}")
+                        elif filename.endswith('_content_list.json'):
+                            content_list_data = json_data
+                            logging.info(f"Found content_list.json file: {file_path}")
+                        else:
+                            # 如果不是明确的文件类型，根据内容判断
+                            if isinstance(json_data, dict) and 'pdf_info' in json_data:
+                                middle_json_data = json_data
+                                logging.info(f"Found middle.json file (by content): {file_path}")
+                            elif isinstance(json_data, list) and len(json_data) > 0 and 'type' in json_data[0]:
+                                content_list_data = json_data
+                                logging.info(f"Found content_list.json file (by content): {file_path}")
+                            else:
+                                logging.warning(f"Unknown JSON file type: {file_path}")
                     except json.JSONDecodeError:
-                        logging.warning(f"Failed to decode middle.json file {file_path}")
+                        logging.warning(f"Failed to decode JSON file {file_path}")
                 elif ext in parser.markdown_extensions:
                     try:
                         markdown_files[file_path] = file_content.decode('utf-8')
@@ -807,6 +1108,12 @@ class MonkeyOCRParser:
                     image_files[file_path] = file_content
                     # print(f"🖼️ DEBUG: Found image file: {file_path}")
                     logging.info(f"Found image file: {file_path}")
+            
+            # 将数据加载到解析器中
+            if middle_json_data:
+                parser.middle_json = middle_json_data
+            if content_list_data:
+                parser.load_content_list(content_list_data)
             
             # print(f"📊 DEBUG: Total markdown files: {len(markdown_files)}")
             logging.info(f"Total markdown files: {len(markdown_files)}")
@@ -855,7 +1162,9 @@ class MonkeyOCRParser:
             # 将位置信息存储到解析器实例中，供后续使用
             self._position_data = {
                 'middle_json': middle_json_data,
-                'image_files': image_files
+                'content_list': content_list_data,
+                'image_files': image_files,
+                'markdown_files': markdown_files
             }
             
             # 返回格式与其他PDF解析器一致
@@ -872,4 +1181,66 @@ class MonkeyOCRParser:
     
     def get_position_data(self):
         """获取位置信息数据"""
-        return getattr(self, '_position_data', None) 
+        return getattr(self, '_position_data', None)
+    
+    def get_content_list(self):
+        """获取content_list数据"""
+        position_data = self.get_position_data()
+        if position_data and 'content_list' in position_data:
+            return position_data['content_list']
+        return None
+
+
+
+    def _save_markdown_files(self, doc_id, position_data):
+        """
+        保存 Markdown 文件到数据库
+        
+        Args:
+            doc_id: 文档ID
+            position_data: 位置数据，包含 markdown_files
+        """
+        if not doc_id:
+            logging.warning("doc_id 为空，跳过 Markdown 文件保存")
+            return
+        
+        markdown_files = position_data.get('markdown_files', {})
+        if not markdown_files:
+            logging.info("没有找到 Markdown 文件，跳过保存")
+            return
+        
+        logging.info(f"开始保存 {len(markdown_files)} 个 Markdown 文件，文档ID: {doc_id}")
+        
+        try:
+            # 导入 DocumentContentService
+            from api.db.services.document_content_service import DocumentContentService
+            
+            # 获取中间数据
+            middle_json_data = position_data.get('middle_json', {})
+            content_list_data = position_data.get('content_list', [])
+            
+            # 保存每个 Markdown 文件
+            for file_path, content in markdown_files.items():
+                try:
+                    # 创建文档内容记录
+                    DocumentContentService.create_document_content(
+                        doc_id=doc_id,
+                        markdown=content,
+                        monkeyocr_middle_json=middle_json_data,
+                        monkeyocr_content_list=content_list_data,
+                        file_path=file_path,
+                        file_name=os.path.basename(file_path)
+                    )
+                    
+                    logging.info(f"已保存 Markdown 文件: {file_path} (大小: {len(content)} 字符)")
+                        
+                except Exception as e:
+                    logging.error(f"保存 Markdown 文件 {file_path} 失败: {e}")
+                    
+        except ImportError as e:
+            logging.error(f"导入 DocumentContentService 失败: {e}")
+            logging.error("请确保 DocumentContentService 已正确配置")
+        except Exception as e:
+            logging.error(f"保存 Markdown 文件过程中发生错误: {e}")
+
+ 
