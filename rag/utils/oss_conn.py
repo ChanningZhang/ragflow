@@ -172,3 +172,53 @@ class RAGFlowOSS:
                 time.sleep(1)
         return
 
+    def copy_object(self, source_bucket, source_object, dest_bucket, dest_object):
+        """
+        Copy an object from source bucket to destination bucket within OSS.
+        This operation is performed server-side without downloading to application memory.
+        
+        Args:
+            source_bucket (str): Source bucket name
+            source_object (str): Source object name/path
+            dest_bucket (str): Destination bucket name
+            dest_object (str): Destination object name/path
+        
+        Returns:
+            Object copy result or None if failed
+        """
+        for _ in range(3):
+            try:
+                # Apply bucket defaults and prefix paths
+                actual_source_bucket = self.bucket if self.bucket else source_bucket
+                actual_dest_bucket = self.bucket if self.bucket else dest_bucket
+                
+                # Apply prefix path if configured
+                if self.prefix_path:
+                    actual_source_object = f"{self.prefix_path}/{source_object}"
+                    actual_dest_object = f"{self.prefix_path}/{dest_object}"
+                else:
+                    actual_source_object = source_object
+                    actual_dest_object = dest_object
+                
+                # Ensure destination bucket exists
+                if not self.bucket_exists(actual_dest_bucket):
+                    self.conn.create_bucket(Bucket=actual_dest_bucket)
+                
+                # Use OSS copy_object API for server-side copy
+                copy_source = {
+                    'Bucket': actual_source_bucket,
+                    'Key': actual_source_object
+                }
+                
+                result = self.conn.copy_object(
+                    CopySource=copy_source,
+                    Bucket=actual_dest_bucket,
+                    Key=actual_dest_object
+                )
+                return result
+            except Exception:
+                logging.exception(f"Fail to copy {source_bucket}/{source_object} to {dest_bucket}/{dest_object}:")
+                self.__open__()
+                time.sleep(1)
+        return None
+

@@ -103,3 +103,42 @@ class RAGFlowAzureSpnBlob:
                 self.__open__()
                 time.sleep(1)
         return
+
+    def copy_object(self, source_bucket, source_object, dest_bucket, dest_object):
+        """
+        Copy an object within Azure Data Lake Storage Gen2.
+        Since Azure SPN only supports one file system, this will copy objects within the same file system.
+        
+        Args:
+            source_bucket (str): Source bucket name (ignored in Azure SPN)
+            source_object (str): Source object name/path
+            dest_bucket (str): Destination bucket name (ignored in Azure SPN)
+            dest_object (str): Destination object name/path
+        
+        Returns:
+            Object copy result or None if failed
+        """
+        for _ in range(3):
+            try:
+                # Get source file client
+                source_file_client = self.conn.get_file_client(source_object)
+                
+                # Check if source exists
+                if not source_file_client.exists():
+                    raise Exception(f"Source object {source_object} does not exist")
+                
+                # Download source file data
+                source_data = source_file_client.download_file().read()
+                
+                # Create destination file and upload data
+                dest_file_client = self.conn.get_file_client(dest_object)
+                dest_file_client.create_file()
+                dest_file_client.append_data(source_data, offset=0, length=len(source_data))
+                result = dest_file_client.flush_data(len(source_data))
+                
+                return result
+            except Exception:
+                logging.exception(f"Fail to copy {source_bucket}/{source_object} to {dest_bucket}/{dest_object}:")
+                self.__open__()
+                time.sleep(1)
+        return None

@@ -118,3 +118,33 @@ class OpenDALStorage:
         cursor.close()
         conn.close()
         logging.info(f"Table `{self._kwargs['table']}` initialized.")
+
+    def copy_object(self, source_bucket, source_object, dest_bucket, dest_object):
+        """
+        Copy an object within OpenDAL storage.
+        This operation will read the source object and write it to the destination.
+        
+        Args:
+            source_bucket (str): Source bucket name
+            source_object (str): Source object name/path
+            dest_bucket (str): Destination bucket name
+            dest_object (str): Destination object name/path
+        
+        Returns:
+            Object copy result or None if failed
+        """
+        for _ in range(3):
+            try:
+                # Read source object
+                source_path = f"{source_bucket}/{source_object}"
+                source_data = self._operator.read(source_path)
+                
+                # Write to destination
+                dest_path = f"{dest_bucket}/{dest_object}"
+                self._operator.write(dest_path, source_data)
+                
+                return True
+            except Exception:
+                logging.exception(f"Fail to copy {source_bucket}/{source_object} to {dest_bucket}/{dest_object}:")
+                time.sleep(1)
+        return None
