@@ -844,16 +844,18 @@ class Search(DataBaseModel):
 
 
 class DocumentContent(DataBaseModel):
-    """文档内容表，用于存储 MonkeyOCR 解析的 Markdown 文件和中间数据"""
+    """文档内容表，用于存储解析器解析的文档内容和中间数据"""
     id = CharField(max_length=32, primary_key=True)
     doc_id = CharField(max_length=32, null=False, help_text="文档ID", index=True)
-    markdown = LongTextField(null=True, help_text="Markdown 文件内容")
     monkeyocr_middle_json = JSONField(null=True, help_text="MonkeyOCR 中间 JSON 数据")
     monkeyocr_content_list = JSONField(null=True, help_text="MonkeyOCR 内容列表数据")
     monkeyocr_image_locations = JSONField(null=True, help_text="MonkeyOCR 图片位置数组，对象结构: {image_name, location}")
     file_path = CharField(max_length=512, null=True, help_text="原始文件路径")
     file_name = CharField(max_length=255, null=True, help_text="文件名")
     content_size = IntegerField(default=0, help_text="内容大小（字节）")
+    content = LongTextField(null=True, help_text="通用内容字段")
+    layout_recognize = CharField(max_length=50, null=True, help_text="布局识别类型")
+    content_type = CharField(max_length=50, default="text", help_text="内容类型 (markdown, text, json等)")
     
     class Meta:
         db_table = "document_content"

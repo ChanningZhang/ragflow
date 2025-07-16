@@ -614,9 +614,9 @@ def naive_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None,
     page_width, page_height = None, None
     if monkeyocr_parser:
         try:
-            position_data = monkeyocr_parser.get_position_data()
-            if position_data and position_data.get('middle_json'):
-                middle_json_data = position_data['middle_json']
+            parse_result = monkeyocr_parser.get_parse_result()
+            if parse_result and parse_result.get('middle_json'):
+                middle_json_data = parse_result['middle_json']
                 pdf_info = middle_json_data.get("pdf_info", [])
                 if pdf_info:
                     page_size = pdf_info[0].get("page_size")
@@ -630,8 +630,8 @@ def naive_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None,
                     logging.error("No pdf_info in middle_json")
                     raise ValueError("No pdf_info in middle_json, cannot determine page size")
             else:
-                logging.error("No position data from parser")
-                raise ValueError("No position data from parser, cannot determine page size")
+                logging.error("No parse result from parser")
+                raise ValueError("No parse result from parser, cannot determine page size")
         except Exception as e:
             logging.error(f"Failed to get page size from parser: {e}")
             raise ValueError(f"Failed to get page size from parser: {e}")
@@ -787,21 +787,21 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
                     logging.info(f"  Chunk {i} image {j}: size={img.size}")
             
             try:
-                # 获取位置信息
-                position_data = monkeyocr_parser.get_position_data()
-                if position_data and position_data.get('middle_json'):
+                # 获取解析结果
+                parse_result = monkeyocr_parser.get_parse_result()
+                if parse_result and parse_result.get('middle_json'):
                     # 使用 MonkeyOCR 的位置信息处理图片
                     logging.info(f"MonkeyOCR: Processing {len(images)} images in chunk {i} with position info")
                     # 获取当前chunk对应的图片路径
                     chunk_image_paths = []
                     if hasattr(monkeyocr_parser, '_chunk_image_paths') and i < len(monkeyocr_parser._chunk_image_paths):
                         chunk_image_paths = monkeyocr_parser._chunk_image_paths[i]
-                    result_images[i] = combine_images_with_monkeyocr_position(images, position_data, chunk_image_paths)
+                    result_images[i] = combine_images_with_monkeyocr_position(images, parse_result, chunk_image_paths)
                     if result_images[i] and hasattr(result_images[i], 'size'):
                         logging.info(f"Chunk {i}: Combined image size={result_images[i].size}")
                 else:
                     # 回退到垂直拼接
-                    logging.info(f"MonkeyOCR: No position data available, using vertical combination for chunk {i}")
+                    logging.info(f"MonkeyOCR: No parse result available, using vertical combination for chunk {i}")
                     result_images[i] = concat_img_with_page_limit(images, max_width=page_width, max_height=page_height)
                     if result_images[i] and hasattr(result_images[i], 'size'):
                         logging.info(f"Chunk {i}: Vertically combined image size={result_images[i].size}")
@@ -928,18 +928,18 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
             
             if monkeyocr_parser:
                 try:
-                    # 获取位置信息
-                    position_data = monkeyocr_parser.get_position_data()
-                    logging.info(f"Chunk {i}: Got position data: {position_data is not None}")
-                    if position_data and position_data.get('middle_json'):
+                    # 获取解析结果
+                    parse_result = monkeyocr_parser.get_parse_result()
+                    logging.info(f"Chunk {i}: Got parse result: {parse_result is not None}")
+                    if parse_result and parse_result.get('middle_json'):
                         # 使用 MonkeyOCR 的位置信息处理图片（单张和多张统一处理）
                         logging.info(f"MonkeyOCR: Processing {len(images)} images in chunk {i} with position info")
-                        result_images[i] = combine_images_with_monkeyocr_position(images, position_data)
+                        result_images[i] = combine_images_with_monkeyocr_position(images, parse_result)
                         if result_images[i] and hasattr(result_images[i], 'size'):
                             logging.info(f"Chunk {i}: Combined image size={result_images[i].size}")
                     else:
                         # 回退到垂直拼接
-                        logging.info(f"MonkeyOCR: No position data available, using vertical combination for chunk {i}")
+                        logging.info(f"MonkeyOCR: No parse result available, using vertical combination for chunk {i}")
                         result_images[i] = concat_img_with_page_limit(images, max_width=page_width, max_height=page_height)
                         if result_images[i] and hasattr(result_images[i], 'size'):
                             logging.info(f"Chunk {i}: Vertically combined image size={result_images[i].size}")
@@ -966,13 +966,13 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
     return filtered_chunks, filtered_images
 
 
-def combine_images_with_monkeyocr_position(images: List[Image.Image], position_data: Dict, image_paths: List[str] = None) -> Optional[Image.Image]:
+def combine_images_with_monkeyocr_position(images: List[Image.Image], parse_result: Dict, image_paths: List[str] = None) -> Optional[Image.Image]:
     """
     使用MonkeyOCR位置信息合并图片，并确保符合页面尺寸限制
     
     Args:
         images: 图片列表
-        position_data: 位置数据
+        parse_result: 解析结果数据
         image_paths: 图片路径列表，用于匹配位置信息
     """
     if not images:
@@ -988,9 +988,9 @@ def combine_images_with_monkeyocr_position(images: List[Image.Image], position_d
     else:
         logging.info("No image paths provided, will use sequential matching")
     
-    middle_json = position_data.get('middle_json')
+    middle_json = parse_result.get('middle_json')
     if not middle_json:
-        logging.error("No middle_json in position_data")
+        logging.error("No middle_json in parse_result")
         return concat_img_with_page_limit(images, max_width=595.3, max_height=841.9)
     
     # 获取页面尺寸信息

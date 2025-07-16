@@ -1,0 +1,130 @@
+graph TD
+    A[Task Executor] --> B[build_chunks]
+    B --> C["FACTORY[parser_id]"]
+    
+    C --> D[naive.chunk]
+    C --> E[presentation.chunk]
+    C --> F[paper.chunk]
+    C --> G[其他应用层解析器]
+    
+    D --> H{文件类型判断}
+    E --> H
+    F --> H
+    G --> H
+    
+    H -->|PDF文件| I[PDF解析分支]
+    H -->|DOCX文件| J[DOCX解析]
+    H -->|TXT文件| K[TXT解析]
+    H -->|其他格式| L[其他解析器]
+    
+    I --> M{layout_recognize选择}
+    
+    M -->|DeepDOC| N[DeepDOC分支]
+    M -->|Plain Text| O[Plain Text分支]
+    M -->|MonkeyOCR| P[MonkeyOCR分支]
+    M -->|Vision| Q[Vision分支]
+    
+    %% DeepDOC分支
+    N --> N1["PdfParser.__call__"]
+    N1 --> N2[pdf2image + OCR]
+    N2 --> N3[layout_recognizer]
+    N3 --> N4[extract_text]
+    N4 --> N5["返回sections, tables"]
+    
+    %% Plain Text分支
+    O --> O1["PlainParser.__call__"]
+    O1 --> O2[pdf2_read]
+    O2 --> O3[page.extract_text]
+    O3 --> O4[返回纯文本sections]
+    
+    %% MonkeyOCR分支
+    P --> P1["MonkeyOCRParser.__call__"]
+    P1 --> P2[MonkeyOCRClient.parse_document]
+    P2 --> P3[HTTP调用MonkeyOCR服务]
+    P3 --> P4[下载ZIP结果]
+    P4 --> P5[MonkeyOCRResultParser.extract_zip_content]
+    P5 --> P6[解析Markdown和图片]
+    P6 --> P7["返回sections, tables"]
+    
+    %% Vision分支
+    Q --> Q1["VisionParser.__call__"]
+    Q1 --> Q2[__images__]
+    Q2 --> Q3[pdfplumber.open]
+    Q3 --> Q4[page.to_image]
+    Q4 --> Q5[遍历每页图片]
+    Q5 --> Q6[picture_vision_llm_chunk]
+    Q6 --> Q7[vision_model.describe_with_prompt]
+    Q7 --> Q8[vision_llm_describe_prompt]
+    Q8 --> Q9[返回Markdown文本]
+    Q9 --> Q10["返回sections, tables"]
+    
+    %% 统一文档内容保存
+    N5 --> R1[返回chunks到Task Executor]
+    O4 --> R1
+    P7 --> R1
+    Q10 --> R1
+    J --> R1
+    K --> R1
+    L --> R1
+    
+    R1 --> R2[save_document_content_unified]
+    R2 --> R3{解析器类型判断}
+    
+    R3 -->|MonkeyOCR + 有position_data| R4[调用_save_markdown_files]
+    R3 -->|其他解析器| R5[extract_content_from_chunks]
+    R5 --> R6[save_general_document_content]
+    R6 --> R7[DocumentContentService.create_document_content]
+    
+    R4 --> R8[保存到document_content表]
+    R7 --> R8
+    
+    %% 后续处理
+    R8 --> R[tokenize_table]
+    
+    R --> S{检查是否有图片}
+    
+    S -->|MonkeyOCR + 有图片| T[naive_merge_with_monkeyocr_images]
+    S -->|Markdown + 有图片| U[naive_merge_with_images]
+    S -->|无图片或其他| V[naive_merge]
+    
+    T --> T1["基于content_list.json分割"]
+    T --> T2[基于delimiter分割]
+    T1 --> T3[combine_images_with_monkeyocr_position]
+    T2 --> T3
+    T3 --> T4[concat_img_with_page_limit]
+    
+    U --> U1[按token数量分割]
+    U --> U2[concat_img合并图片]
+    
+    V --> V1[按token数量分割]
+    
+    T4 --> W[tokenize_chunks_with_images]
+    U2 --> W
+    V1 --> X[tokenize_chunks]
+    
+    W --> Y[返回chunks列表]
+    X --> Y
+    
+    Y --> Z[embedding处理]
+    Z --> AA[存储到向量数据库]
+    
+    %% 样式定义
+    classDef executor fill:#e1f5fe
+    classDef parser fill:#f3e5f5
+    classDef deepdoc fill:#e8f5e8
+    classDef plain fill:#fff3e0
+    classDef monkeyocr fill:#fce4ec
+    classDef vision fill:#e3f2fd
+    classDef process fill:#f1f8e9
+    classDef unified fill:#fff8e1
+    classDef db fill:#e8f5e8
+    
+    class A,B executor
+    class C,D,E,F,G parser
+    class N,N1,N2,N3,N4,N5 deepdoc
+    class O,O1,O2,O3,O4 plain
+    class P,P1,P2,P3,P4,P5,P6,P7 monkeyocr
+    class Q,Q1,Q2,Q3,Q4,Q5,Q6,Q7,Q8,Q9,Q10 vision
+    class R,S,T,U,V,W,X,Y,Z,AA process
+    class R1,R2,R3,R4,R5,R6,R7 unified
+    class R8 db

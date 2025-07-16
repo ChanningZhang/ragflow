@@ -147,6 +147,10 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}, KB ID: {kb_id}")
             sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
                                       callback=callback)
+            
+            # 将解析器实例存储到模块中，供后续使用
+            import sys
+            sys.modules[__name__]._current_parser = pdf_parser
         else:
             vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
             pdf_parser = VisionParser(vision_model=vision_model, **kwargs)

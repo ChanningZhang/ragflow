@@ -27,20 +27,23 @@ class DocumentContentService(CommonService):
 
     @classmethod
     @DB.connection_context()
-    def create_document_content(cls, doc_id, markdown=None, monkeyocr_middle_json=None, 
+    def create_document_content(cls, doc_id, monkeyocr_middle_json=None, 
                                monkeyocr_content_list=None, monkeyocr_image_locations=None, 
-                               file_path=None, file_name=None):
+                               file_path=None, file_name=None, content=None, 
+                               layout_recognize=None, content_type=None):
         """
         创建文档内容记录
         
         Args:
             doc_id: 文档ID
-            markdown: Markdown 文件内容
             monkeyocr_middle_json: MonkeyOCR 中间 JSON 数据
             monkeyocr_content_list: MonkeyOCR 内容列表数据
             monkeyocr_image_locations: MonkeyOCR 图片位置数组（对象结构: {image_name, location}）
             file_path: 原始文件路径
             file_name: 文件名
+            content: 通用内容字段
+            layout_recognize: 布局识别类型
+            content_type: 内容类型 (markdown, text, json等)
             
         Returns:
             DocumentContent: 创建的文档内容记录
@@ -48,26 +51,28 @@ class DocumentContentService(CommonService):
         try:
             # 计算内容大小
             content_size = 0
-            if markdown:
-                content_size += len(markdown.encode('utf-8'))
+            if content:
+                content_size += len(content.encode('utf-8'))
             
             # 创建记录
             content_record = {
                 "id": get_uuid(),
                 "doc_id": doc_id,
-                "markdown": markdown,
                 "monkeyocr_middle_json": monkeyocr_middle_json,
                 "monkeyocr_content_list": monkeyocr_content_list,
                 "monkeyocr_image_locations": monkeyocr_image_locations,
                 "file_path": file_path,
                 "file_name": file_name or (os.path.basename(file_path) if file_path else None),
-                "content_size": content_size
+                "content_size": content_size,
+                "content": content,
+                "layout_recognize": layout_recognize,
+                "content_type": content_type or "text"
             }
             
             # 插入数据库
             cls.model.create(**content_record)
             
-            logging.info(f"成功创建文档内容记录: {content_record['id']}, 文档ID: {doc_id}")
+            logging.info(f"成功创建文档内容记录: {content_record['id']}, 文档ID: {doc_id}, 布局识别: {layout_recognize}")
             return content_record
             
         except Exception as e:
@@ -106,9 +111,9 @@ class DocumentContentService(CommonService):
             bool: 更新是否成功
         """
         try:
-            # 如果更新了 markdown 内容，重新计算大小
-            if 'markdown' in kwargs:
-                content_size = len(kwargs['markdown'].encode('utf-8')) if kwargs['markdown'] else 0
+            # 如果更新了 content 内容，重新计算大小
+            if 'content' in kwargs:
+                content_size = len(kwargs['content'].encode('utf-8')) if kwargs['content'] else 0
                 kwargs['content_size'] = content_size
             
             cls.update_by_id(content_id, kwargs)
@@ -117,6 +122,27 @@ class DocumentContentService(CommonService):
             
         except Exception as e:
             logging.error(f"更新文档内容记录失败: {e}")
+            return False
+
+    @classmethod
+    @DB.connection_context()
+    def delete_by_doc_id(cls, doc_id):
+        """
+        根据文档ID删除文档内容记录
+        
+        Args:
+            doc_id: 文档ID
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            deleted_count = cls.model.delete().where(cls.model.doc_id == doc_id).execute()
+            logging.info(f"成功删除文档内容记录: doc_id={doc_id}, 删除数量={deleted_count}")
+            return True
+            
+        except Exception as e:
+            logging.error(f"删除文档内容记录失败: {e}")
             return False
 
     @classmethod
@@ -158,7 +184,7 @@ class DocumentContentService(CommonService):
             stats = {
                 "total_records": len(contents),
                 "total_size": sum(c.content_size for c in contents),
-                "has_markdown": any(c.markdown for c in contents),
+                "has_content": any(c.content for c in contents),
                 "has_middle_json": any(c.monkeyocr_middle_json for c in contents),
                 "has_content_list": any(c.monkeyocr_content_list for c in contents),
                 "has_image_locations": any(c.monkeyocr_image_locations for c in contents),

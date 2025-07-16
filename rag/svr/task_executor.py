@@ -260,6 +260,10 @@ async def build_chunks(task, progress_callback):
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
                                 kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"], doc_id=task["doc_id"]))
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
+        
+        # 统一保存文档内容
+        await save_document_content_unified(task, chunker, cks)
+        
     except TaskCanceledException:
         raise
     except Exception as e:
@@ -397,6 +401,123 @@ async def build_chunks(task, progress_callback):
         progress_callback(msg="Tagging {} chunks completed in {:.2f}s".format(len(docs), timer() - st))
 
     return docs
+
+
+def extract_content_from_chunks(chunks):
+    """
+    从chunks中提取内容
+    
+    Args:
+        chunks: 解析结果chunks
+    
+    Returns:
+        str: 提取的内容
+    """
+    content_parts = []
+    
+    for chunk in chunks:
+        if isinstance(chunk, dict) and "content_with_weight" in chunk:
+            content_parts.append(chunk["content_with_weight"])
+        elif isinstance(chunk, str):
+            content_parts.append(chunk)
+    
+    return "\n\n".join(content_parts)
+
+def save_general_document_content(doc_id, content, layout_recognize, file_name, file_location):
+    """
+    保存通用文档内容
+    
+    Args:
+        doc_id: 文档ID
+        content: 文档内容
+        layout_recognize: 布局识别类型
+        file_name: 文件名
+        file_location: 文件位置
+    """
+    try:
+        from api.db.services.document_content_service import DocumentContentService
+        
+        DocumentContentService.create_document_content(
+            doc_id=doc_id,
+            content=content,
+            layout_recognize=layout_recognize,
+            file_name=file_name,
+            file_path=file_location,
+            content_type="text"
+        )
+        
+        logging.info(f"Successfully saved document content for {doc_id} using {layout_recognize}")
+        
+    except Exception as e:
+        logging.error(f"Failed to save document content for {doc_id}: {e}")
+
+async def save_document_content_unified(task, chunker, chunks):
+    """
+    统一保存文档内容到数据库
+    
+    Args:
+        task: 任务信息，包含doc_id等
+        chunker: 解析器对象
+        chunks: 解析结果
+    """
+    doc_id = task.get("doc_id")
+    if not doc_id:
+        return
+        
+    try:
+        # 从parser_config中获取layout_recognize配置
+        parser_config = task.get("parser_config", {})
+        layout_recognize = parser_config.get("layout_recognize", "DeepDOC")
+        
+        # 检查是否是MonkeyOCR解析器且有parse_result
+        if layout_recognize == "MonkeyOCR":
+            # 尝试从chunker模块中获取当前解析器实例
+            current_parser = getattr(chunker, '_current_parser', None)
+            if current_parser and hasattr(current_parser, '_parse_result') and current_parser._parse_result:
+                # MonkeyOCR 分支 - 使用现有的保存逻辑
+                await trio.to_thread.run_sync(
+                    current_parser._save_markdown_files, 
+                    doc_id, 
+                    current_parser._parse_result
+                )
+                logging.info(f"Saved MonkeyOCR markdown files for doc_id: {doc_id}")
+            else:
+                content = extract_content_from_chunks(chunks)
+                if content.strip():  # 只有当内容不为空时才保存
+                    await trio.to_thread.run_sync(
+                        save_general_document_content,
+                        doc_id,
+                        content,
+                        layout_recognize,
+                        task["name"],
+                        task["location"]
+                    )
+                    logging.info(f"Saved MonkeyOCR plain text for doc_id: {doc_id}")
+        else:
+            # 其他解析器分支 - 提取内容并保存
+            content = extract_content_from_chunks(chunks)
+            if content.strip():  # 只有当内容不为空时才保存
+                await trio.to_thread.run_sync(
+                    save_general_document_content,
+                    doc_id,
+                    content,
+                    layout_recognize,
+                    task["name"],
+                    task["location"]
+                )
+                logging.info(f"Saved general document content for doc_id: {doc_id}, layout_recognize: {layout_recognize}")
+        
+        # 清空chunker模块中的_current_parser，避免复用问题
+        if hasattr(chunker, '_current_parser'):
+            delattr(chunker, '_current_parser')
+            logging.debug(f"Cleared _current_parser from {chunker.__name__}")
+            
+    except Exception as e:
+        logging.error(f"Failed to save document content for doc_id {doc_id}: {e}")
+        # 即使出错也要清空_current_parser
+        if hasattr(chunker, '_current_parser'):
+            delattr(chunker, '_current_parser')
+            logging.debug(f"Cleared _current_parser from {chunker.__name__} after error")
 
 
 def init_kb(row, vector_size: int):

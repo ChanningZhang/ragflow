@@ -124,8 +124,8 @@ class MonkeyOCRResultParser:
         
         return content
     
-    # def get_position_data(self) -> Dict:
-    #     """获取位置数据，用于图片合并"""
+    # def get_parse_result(self) -> Dict:
+    #     """获取解析结果数据，用于图片合并"""
     #     return {
     #         'middle_json': self.middle_json,
     #         'content_list': self.content_list
@@ -1132,7 +1132,7 @@ class MonkeyOCRParser:
                             STORAGE_IMPL.put(self.kb_id, image_filename, file_content)
                             minio_path = f"{self.kb_id}/{image_filename}"
                             minio_image_locations.append({
-                                "image_name": os.path.basename(file_path),
+                                "tag": image_filename[image_filename.rindex('_')+1:],
                                 "location": minio_path
                             })
                             logging.info(f"Successfully uploaded image to MinIO: {minio_path}")
@@ -1191,8 +1191,8 @@ class MonkeyOCRParser:
             
             callback(0.9, "MonkeyOCR处理完成")
             
-            # 将位置信息存储到解析器实例中，供后续使用
-            self._position_data = {
+            # 将解析结果存储到解析器实例中，供后续使用
+            self._parse_result = {
                 'middle_json': middle_json_data,
                 'content_list': content_list_data,
                 'image_locations': minio_image_locations,
@@ -1215,37 +1215,37 @@ class MonkeyOCRParser:
             if client:
                 client.close()
     
-    def get_position_data(self):
-        """获取位置信息数据"""
-        return getattr(self, '_position_data', None)
+    def get_parse_result(self):
+        """获取解析结果数据"""
+        return getattr(self, '_parse_result', None)
     
     def get_content_list(self):
         """获取content_list数据"""
-        position_data = self.get_position_data()
-        if position_data and 'content_list' in position_data:
-            return position_data['content_list']
+        parse_result = self.get_parse_result()
+        if parse_result and 'content_list' in parse_result:
+            return parse_result['content_list']
         return None
 
     def get_minio_image_locations(self):
         """获取MinIO图片位置对象数组"""
-        position_data = self.get_position_data()
-        if position_data and 'image_locations' in position_data:
-            return position_data['image_locations']
+        parse_result = self.get_parse_result()
+        if parse_result and 'image_locations' in parse_result:
+            return parse_result['image_locations']
         return []
 
-    def _save_markdown_files(self, doc_id, position_data):
+    def _save_markdown_files(self, doc_id, parse_result):
         """
         保存 Markdown 文件到数据库
         
         Args:
             doc_id: 文档ID
-            position_data: 位置数据，包含 markdown_files 和 image_locations
+            parse_result: 解析结果数据，包含 markdown_files 和 image_locations
         """
         if not doc_id:
             logging.warning("doc_id 为空，跳过 Markdown 文件保存")
             return
         
-        markdown_files = position_data.get('markdown_files', {})
+        markdown_files = parse_result.get('markdown_files', {})
         if not markdown_files:
             logging.info("没有找到 Markdown 文件，跳过保存")
             return
@@ -1257,9 +1257,9 @@ class MonkeyOCRParser:
             from api.db.services.document_content_service import DocumentContentService
             
             # 获取中间数据
-            middle_json_data = position_data.get('middle_json', {})
-            content_list_data = position_data.get('content_list', [])
-            image_locations = position_data.get('image_locations', [])
+            middle_json_data = parse_result.get('middle_json', {})
+            content_list_data = parse_result.get('content_list', [])
+            image_locations = parse_result.get('image_locations', [])
             
             # 保存每个 Markdown 文件
             for file_path, content in markdown_files.items():
@@ -1267,12 +1267,14 @@ class MonkeyOCRParser:
                     # 创建文档内容记录
                     DocumentContentService.create_document_content(
                         doc_id=doc_id,
-                        markdown=content,
+                        content=content,
                         monkeyocr_middle_json=middle_json_data,
                         monkeyocr_content_list=content_list_data,
                         monkeyocr_image_locations=image_locations,
                         file_path=file_path,
-                        file_name=os.path.basename(file_path)
+                        file_name=os.path.basename(file_path),
+                        layout_recognize="MonkeyOCR",
+                        content_type="markdown"
                     )
                     
                     logging.info(f"已保存 Markdown 文件: {file_path} (大小: {len(content)} 字符)")
@@ -1287,45 +1289,3 @@ class MonkeyOCRParser:
             logging.error("请确保 DocumentContentService 已正确配置")
         except Exception as e:
             logging.error(f"保存 Markdown 文件过程中发生错误: {e}")
-
-    def save_image_locations_to_db(self, doc_id):
-        """
-        将图片位置保存到数据库
-        Args:
-            doc_id: 文档ID
-        Returns:
-            bool: 保存是否成功
-        """
-        if not doc_id:
-            logging.warning("doc_id 为空，跳过图片位置保存")
-            return False
-        position_data = self.get_position_data()
-        if not position_data:
-            logging.warning("没有位置数据，跳过图片位置保存")
-            return False
-        image_locations = position_data.get('image_locations', [])
-        if not image_locations:
-            logging.info("没有图片位置，跳过保存")
-            return True
-        try:
-            from api.db.services.document_content_service import DocumentContentService
-            middle_json_data = position_data.get('middle_json', {})
-            content_list_data = position_data.get('content_list', [])
-            content_record = DocumentContentService.create_document_content(
-                doc_id=doc_id,
-                markdown=None,
-                monkeyocr_middle_json=middle_json_data,
-                monkeyocr_content_list=content_list_data,
-                monkeyocr_image_locations=image_locations,
-                file_path="monkeyocr_images",
-                file_name="image_locations"
-            )
-            logging.info(f"成功保存图片位置到数据库: {content_record['id']}")
-            logging.info(f"图片位置: {image_locations}")
-            return True
-        except ImportError as e:
-            logging.error(f"导入 DocumentContentService 失败: {e}")
-            return False
-        except Exception as e:
-            logging.error(f"保存图片位置到数据库失败: {e}")
-            return False 

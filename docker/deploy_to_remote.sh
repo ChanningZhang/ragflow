@@ -20,6 +20,15 @@ LOCAL_FILES=(
     "../api/db/services/file_service.py"
     "../rag/utils/minio_conn.py"
     "../rag/svr/task_executor.py"
+    "../deepdoc/parser/monkeyocr_parser.py"
+    "../deepdoc/parser/__init__.py"
+    "../rag/app/naive.py"
+    "../rag/app/presentation.py"
+    "../rag/nlp/__init__.py"
+    "../api/db/services/document_service.py"
+    "../api/db/services/document_content_service.py"
+    "../api/db/db_models.py"
+    "../api/db/services/__init__.py"
     "./docker-compose.yml"
 )
 
@@ -28,6 +37,15 @@ REMOTE_FILES=(
     "${REMOTE_BASE_PATH}/api/db/services/file_service.py"
     "${REMOTE_BASE_PATH}/rag/utils/minio_conn.py"
     "${REMOTE_BASE_PATH}/rag/svr/task_executor.py"
+    "${REMOTE_BASE_PATH}/deepdoc/parser/monkeyocr_parser.py"
+    "${REMOTE_BASE_PATH}/deepdoc/parser/__init__.py"
+    "${REMOTE_BASE_PATH}/rag/app/naive.py"
+    "${REMOTE_BASE_PATH}/rag/app/presentation.py"
+    "${REMOTE_BASE_PATH}/rag/nlp/__init__.py"
+    "${REMOTE_BASE_PATH}/api/db/services/document_service.py"
+    "${REMOTE_BASE_PATH}/api/db/services/document_content_service.py"
+    "${REMOTE_BASE_PATH}/api/db/db_models.py"
+    "${REMOTE_BASE_PATH}/api/db/services/__init__.py"
     "${REMOTE_BASE_PATH}/docker/docker-compose.yml"
 )
 
