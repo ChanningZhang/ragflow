@@ -28,6 +28,7 @@ from api import settings
 from api.constants import FILE_NAME_LEN_LIMIT
 from api.db import FileSource, FileType, LLMType, ParserType, TaskStatus
 from api.db.db_models import File, Task
+from api.db.services.document_content_service import DocumentContentService
 from api.db.services.document_service import DocumentService
 from api.db.services.file2document_service import File2DocumentService
 from api.db.services.file_service import FileService
@@ -220,6 +221,17 @@ def register(dataset_id, tenant_id):
     except Exception as e:
         logging.exception(e)
         return get_error_data_result(message=f"Document registration failed: {str(e)}")
+
+@manager.route("/datasets/<dataset_id>/documents/<document_id>/content", methods=["GET"])  # noqa: F821
+@token_required
+def get_doc_content(tenant_id, dataset_id, document_id):
+    """
+    Get document content.
+    """
+    content = DocumentContentService.get_by_doc_id(document_id)
+    if not content:
+        return get_error_data_result(message="Document content not found.")
+    return get_result(data=content[0].to_dict())
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>", methods=["PUT"])  # noqa: F821
 @token_required

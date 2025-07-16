@@ -51,7 +51,7 @@ services:
       - TZ=${TIMEZONE}
       - HF_ENDPOINT=${HF_ENDPOINT}
       - MACOS=${MACOS}
-      - MONKEYOCR_URL=${MONKEYOCR_URL:-http://host.docker.internal:6006}
+      - MONKEYOCR_URL=${MONKEYOCR_URL:-https://u727268-a9a5-bda5fc5a.nmb1.seetacloud.com:8443}
       - MONKEYOCR_TIMEOUT=${MONKEYOCR_TIMEOUT:-300}
     networks:
       - ragflow

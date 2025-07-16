@@ -1017,10 +1017,10 @@ class MonkeyOCRParser:
         
         client = None
         try:
-            callback(0.1, "连接MonkeyOCR服务...")
+            callback(0.1, "连接OCR服务...")
             
             client = MonkeyOCRClient(self.monkeyocr_url, self.timeout)
-            callback(0.2, "发送文档到MonkeyOCR...")
+            callback(0.2, "发送文档...")
             
             # 调用MonkeyOCR解析
             response = client.parse_document(binary, os.path.basename(filename))
@@ -1054,7 +1054,7 @@ class MonkeyOCRParser:
                 f.write(zip_data)
             
             logging.info(f"MonkeyOCR ZIP文件已保存到: {zip_path}")
-            callback(0.6, f"解析返回数据... (ZIP已保存到: {zip_path})")
+            callback(0.6, f"解析返回数据...")
             
             # 解析ZIP内容
             parser = MonkeyOCRResultParser()
@@ -1189,7 +1189,7 @@ class MonkeyOCRParser:
                     except Exception as e:
                         logging.warning(f"Failed to process image {img_path}: {e}")
             
-            callback(0.9, "MonkeyOCR处理完成")
+            callback(0.9, "OCR处理完成")
             
             # 将解析结果存储到解析器实例中，供后续使用
             self._parse_result = {
