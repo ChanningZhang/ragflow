@@ -167,7 +167,7 @@ def set_progress(task_id, from_page=0, to_page=-1, prog=None, msg="Processing...
                 if from_page < to_page:
                     msg = f"Page({from_page + 1}~{to_page + 1}): " + msg
         if msg:
-            msg = datetime.now().strftime("%H:%M:%S") + " " + msg
+            msg = datetime.now().strftime("%H:%M:%S") + " " + msg + f" [Task: {task_id[:8]}]"
         d = {"progress_msg": msg}
         if prog is not None:
             d["progress"] = prog
@@ -238,9 +238,11 @@ async def build_chunks(task, progress_callback):
     chunker = FACTORY[task["parser_id"].lower()]
     try:
         st = timer()
+        logging.info(f"[Task: {task['id'][:8]}] Fetching file from storage: {task['location']}/{task['name']}")
         bucket, name = File2DocumentService.get_storage_address(doc_id=task["doc_id"])
         binary = await get_storage_binary(bucket, name)
-        logging.info("From minio({}) {}/{}".format(timer() - st, task["location"], task["name"]))
+        fetch_time = timer() - st
+        logging.info(f"[Task: {task['id'][:8]}] File fetched from storage ({fetch_time:.2f}s): {task['location']}/{task['name']}")
     except TimeoutError:
         progress_callback(-1, "Internal server error: Fetch file from minio timeout. Could you try it again.")
         logging.exception(
@@ -255,11 +257,18 @@ async def build_chunks(task, progress_callback):
         raise
 
     try:
+        chunk_start = timer()
+        logging.info(f"[Task: {task['id'][:8]}] Waiting for chunk limiter...")
         async with chunk_limiter:
+            limiter_wait_time = timer() - chunk_start
+            logging.info(f"[Task: {task['id'][:8]}] Chunk limiter acquired ({limiter_wait_time:.2f}s), starting document parsing...")
+            parse_start = timer()
             cks = await trio.to_thread.run_sync(lambda: chunker.chunk(task["name"], binary=binary, from_page=task["from_page"],
                                 to_page=task["to_page"], lang=task["language"], callback=progress_callback,
                                 kb_id=task["kb_id"], parser_config=task["parser_config"], tenant_id=task["tenant_id"], doc_id=task["doc_id"]))
-        logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
+            parse_time = timer() - parse_start
+        total_chunk_time = timer() - st
+        logging.info(f"[Task: {task['id'][:8]}] Document parsing completed (parse: {parse_time:.2f}s, total: {total_chunk_time:.2f}s): {task['location']}/{task['name']}")
         
         # 统一保存文档内容
         await save_document_content_unified(task, chunker, cks)
@@ -641,16 +650,24 @@ async def do_handle_task(task):
 
     try:
         # bind embedding model
+        embedding_start = timer()
+        logging.info(f"[Task: {task_id[:8]}] Starting embedding model binding...")
         embedding_model = LLMBundle(task_tenant_id, LLMType.EMBEDDING, llm_name=task_embedding_id, lang=task_language)
         vts, _ = embedding_model.encode(["ok"])
         vector_size = len(vts[0])
+        embedding_time = timer() - embedding_start
+        logging.info(f"[Task: {task_id[:8]}] Embedding model binding completed ({embedding_time:.2f}s)")
     except Exception as e:
         error_message = f'Fail to bind embedding model: {str(e)}'
         progress_callback(-1, msg=error_message)
-        logging.exception(error_message)
+        logging.exception(f"[Task: {task_id[:8]}] {error_message}")
         raise
 
+    init_kb_start = timer()
+    logging.info(f"[Task: {task_id[:8]}] Starting knowledge base initialization...")
     init_kb(task, vector_size)
+    init_kb_time = timer() - init_kb_start
+    logging.info(f"[Task: {task_id[:8]}] Knowledge base initialization completed ({init_kb_time:.2f}s)")
 
     # Either using RAPTOR or Standard chunking methods
     if task.get("task_type", "") == "raptor":
@@ -675,8 +692,10 @@ async def do_handle_task(task):
     else:
         # Standard chunking methods
         start_ts = timer()
+        logging.info(f"[Task: {task_id[:8]}] Starting document chunking for {task_document_name}...")
         chunks = await build_chunks(task, progress_callback)
-        logging.info("Build document {}: {:.2f}s".format(task_document_name, timer() - start_ts))
+        chunk_time = timer() - start_ts
+        logging.info(f"[Task: {task_id[:8]}] Build document {task_document_name} completed ({chunk_time:.2f}s)")
         if chunks is None:
             return
         if not chunks:
@@ -757,12 +776,14 @@ async def handle_task():
         await trio.sleep(5)
         return
     try:
-        logging.info(f"handle_task begin for task {json.dumps(task)}")
+        task_start_time = timer()
+        logging.info(f"[Task: {task['id'][:8]}] handle_task begin for task {json.dumps(task)}")
         CURRENT_TASKS[task["id"]] = copy.deepcopy(task)
         await do_handle_task(task)
         DONE_TASKS += 1
         CURRENT_TASKS.pop(task["id"], None)
-        logging.info(f"handle_task done for task {json.dumps(task)}")
+        total_task_time = timer() - task_start_time
+        logging.info(f"[Task: {task['id'][:8]}] handle_task done for task (total time: {total_task_time:.2f}s)")
     except Exception as e:
         FAILED_TASKS += 1
         CURRENT_TASKS.pop(task["id"], None)
@@ -774,7 +795,7 @@ async def handle_task():
             set_progress(task["id"], prog=-1, msg=f"[Exception]: {err_msg}")
         except Exception:
             pass
-        logging.exception(f"handle_task got exception for task {json.dumps(task)}")
+        logging.exception(f"[Task: {task['id'][:8]}] handle_task got exception for task")
     redis_msg.ack()
 
 

@@ -368,6 +368,8 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     res = []
     pdf_parser = None
     section_images = None
+    # 初始化 layout_recognizer 变量，避免在非 PDF 文件中出现 "referenced before assignment" 错误
+    layout_recognizer = parser_config.get("layout_recognize", "Plain Text")
     if re.search(r"\.docx$", filename, re.IGNORECASE):
         callback(0.1, "Start to parse.")
 
@@ -406,9 +408,6 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         return res
 
     elif re.search(r"\.pdf$", filename, re.IGNORECASE):
-        layout_recognizer = parser_config.get("layout_recognize", "DeepDOC")
-        if isinstance(layout_recognizer, bool):
-            layout_recognizer = "DeepDOC" if layout_recognizer else "Plain Text"
         callback(0.1, "Start to parse.")
         
         logging.info(f"PDF parsing started - Layout recognizer: {layout_recognizer}, From page: {from_page}, To page: {to_page}")
