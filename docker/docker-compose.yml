@@ -52,6 +52,8 @@ services:
       - ../api/apps/api_app.py:/ragflow/api/apps/api_app.py
       - ../api/apps/conversation_app.py:/ragflow/api/apps/conversation_app.py
       - ../api/apps/sdk/session.py:/ragflow/api/apps/sdk/session.py
+      - ../rag/app/table.py:/ragflow/rag/app/table.py
+      - ../deepdoc/parser/excel_parser.py:/ragflow/deepdoc/parser/excel_parser.py
     env_file: .env
     environment:
       - TZ=${TIMEZONE}

@@ -39,6 +39,8 @@ class RAGFlowExcelParser:
             try:
                 file_like_object.seek(0)
                 df = pd.read_csv(file_like_object)
+                # 确保 CSV 数据中的空值也被处理
+                df = df.fillna("")
                 return RAGFlowExcelParser._dataframe_to_workbook(df)
 
             except Exception as e_csv:
@@ -51,22 +53,31 @@ class RAGFlowExcelParser:
             try:
                 file_like_object.seek(0)
                 df = pd.read_excel(file_like_object)
+                # 确保 Excel 数据中的空值也被处理
+                df = df.fillna("")
                 return RAGFlowExcelParser._dataframe_to_workbook(df)
             except Exception as e_pandas:
                 raise Exception(f"****wxy: pandas.read_excel error: {e_pandas}, original openpyxl error: {e}")
 
     @staticmethod
     def _dataframe_to_workbook(df):
+        # 填充 NaN 值为空字符串，避免 None 问题
+        df = df.fillna("")
+        
         wb = Workbook()
         ws = wb.active
         ws.title = "Data"
 
         for col_num, column_name in enumerate(df.columns, 1):
-            ws.cell(row=1, column=col_num, value=column_name)
+            # 确保列名也不为 None
+            col_value = column_name if column_name is not None else ""
+            ws.cell(row=1, column=col_num, value=col_value)
 
         for row_num, row in enumerate(df.values, 2):
             for col_num, value in enumerate(row, 1):
-                ws.cell(row=row_num, column=col_num, value=value)
+                # 确保空值转换为空字符串
+                cell_value = value if (value is not None and not pd.isna(value)) else ""
+                ws.cell(row=row_num, column=col_num, value=cell_value)
 
         return wb
 
@@ -118,9 +129,10 @@ class RAGFlowExcelParser:
             for r in list(rows[1:]):
                 fields = []
                 for i, c in enumerate(r):
-                    if not c.value:
+                    # 修复空 cell 问题：跳过 None 值和空字符串
+                    if c.value is None or c.value == "":
                         continue
-                    t = str(ti[i].value) if i < len(ti) else ""
+                    t = str(ti[i].value) if i < len(ti) and ti[i].value is not None else ""
                     t += ("：" if t else "") + str(c.value)
                     fields.append(t)
                 line = "; ".join(fields)

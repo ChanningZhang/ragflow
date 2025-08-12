@@ -60,7 +60,8 @@ class Excel(ExcelParser):
                     continue
                 if rn - 1 >= to_page:
                     break
-                row = [cell.value for ii, cell in enumerate(r) if ii not in missed]
+                # 修复空 cell 问题：将 None 转换为空字符串
+                row = [cell.value if cell.value is not None else "" for ii, cell in enumerate(r) if ii not in missed]
                 if len(row) != len(headers):
                     fails.append(str(i))
                     continue
@@ -108,12 +109,14 @@ def column_data_type(arr):
     counts = sorted(counts.items(), key=lambda x: x[1] * -1)
     ty = counts[0][0]
     for i in range(len(arr)):
-        if arr[i] is None:
+        if arr[i] is None or arr[i] == "":
+            # 空值保持为空字符串，避免转换为字符串 "None"
+            arr[i] = ""
             continue
         try:
             arr[i] = trans[ty](str(arr[i]))
         except Exception:
-            arr[i] = None
+            arr[i] = ""
     # if ty == "text":
     #    if len(arr) > 128 and uni / len(arr) < 0.1:
     #        ty = "keyword"
@@ -194,11 +197,13 @@ def chunk(filename, binary=None, from_page=0, to_page=10000000000, lang="Chinese
             d = {"docnm_kwd": filename, "title_tks": rag_tokenizer.tokenize(re.sub(r"\.[a-zA-Z]+$", "", filename))}
             row_txt = []
             for j in range(len(clmns)):
-                if row[clmns[j]] is None:
-                    continue
-                if not str(row[clmns[j]]):
+                # 更严格的空值检查：包括 None、空字符串和 NaN
+                if row[clmns[j]] is None or row[clmns[j]] == "":
                     continue
                 if not isinstance(row[clmns[j]], pd.Series) and pd.isna(row[clmns[j]]):
+                    continue
+                # 再次检查字符串化后是否为空（兼容性处理）
+                if not str(row[clmns[j]]).strip():
                     continue
                 fld = clmns_map[j][0]
                 d[fld] = row[clmns[j]] if clmn_tys[j] != "text" else rag_tokenizer.tokenize(row[clmns[j]])

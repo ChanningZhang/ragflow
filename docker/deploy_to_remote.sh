@@ -16,6 +16,7 @@ echo -e "${GREEN}开始部署文件到远程服务器 ${REMOTE_USER}@${REMOTE_HO
 
 # 定义需要拷贝的文件数组
 LOCAL_FILES=(
+    "./entrypoint.sh"
     "../api/apps/sdk/doc.py"
     "../api/db/services/file_service.py"
     "../rag/utils/minio_conn.py"
@@ -29,10 +30,20 @@ LOCAL_FILES=(
     "../api/db/services/document_content_service.py"
     "../api/db/db_models.py"
     "../api/db/services/__init__.py"
+    "../api/db/services/task_service.py"
+    "../api/db/services/conversation_service.py"
+    "../api/db/services/canvas_service.py"
+    "../api/apps/api_app.py"
+    "../api/apps/conversation_app.py"
+    "../api/apps/sdk/session.py"
+    "../rag/app/table.py"
+    "../deepdoc/parser/excel_parser.py"
+    "../rag/app/qa.py"
     "./docker-compose.yml"
 )
 
 REMOTE_FILES=(
+    "${REMOTE_BASE_PATH}/docker/entrypoint.sh"
     "${REMOTE_BASE_PATH}/api/apps/sdk/doc.py"
     "${REMOTE_BASE_PATH}/api/db/services/file_service.py"
     "${REMOTE_BASE_PATH}/rag/utils/minio_conn.py"
@@ -46,7 +57,16 @@ REMOTE_FILES=(
     "${REMOTE_BASE_PATH}/api/db/services/document_content_service.py"
     "${REMOTE_BASE_PATH}/api/db/db_models.py"
     "${REMOTE_BASE_PATH}/api/db/services/__init__.py"
+    "${REMOTE_BASE_PATH}/api/db/services/task_service.py"
+    "${REMOTE_BASE_PATH}/api/db/services/conversation_service.py"
+    "${REMOTE_BASE_PATH}/api/db/services/canvas_service.py"
+    "${REMOTE_BASE_PATH}/api/apps/api_app.py"
+    "${REMOTE_BASE_PATH}/api/apps/conversation_app.py"
+    "${REMOTE_BASE_PATH}/api/apps/sdk/session.py"
     "${REMOTE_BASE_PATH}/docker/docker-compose.yml"
+    "${REMOTE_BASE_PATH}/rag/app/qa.py"
+    "${REMOTE_BASE_PATH}/rag/app/table.py"
+    "${REMOTE_BASE_PATH}/deepdoc/parser/excel_parser.py"
 )
 
 # 检查本地文件是否存在
@@ -94,7 +114,7 @@ echo -e "${YELLOW}是否需要重启远程服务器上的RAGFlow服务？(y/n)${
 read -r restart_choice
 if [[ "$restart_choice" =~ ^[Yy]$ ]]; then
     echo -e "${YELLOW}重启远程RAGFlow服务...${NC}"
-    ssh ${REMOTE_USER}@${REMOTE_HOST} "cd ${REMOTE_BASE_PATH}/docker && docker-compose down && docker-compose up -d"
+    ssh ${REMOTE_USER}@${REMOTE_HOST} "cd ${REMOTE_BASE_PATH}/docker && docker compose down && docker compose up -d"
     echo -e "${GREEN}服务重启完成！${NC}"
 fi
 
