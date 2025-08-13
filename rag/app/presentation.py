@@ -133,10 +133,20 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         layout_recognizer = parser_config.get("layout_recognize", "DeepDOC")
         if layout_recognizer == "DeepDOC":
             pdf_parser = Pdf()
-            sections = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
+            sections = pdf_parser(
+                filename if not binary else binary,
+                from_page=from_page,
+                to_page=to_page,
+                callback=callback,
+            )
         elif layout_recognizer == "Plain Text":
             pdf_parser = PlainParser()
-            sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page, callback=callback)
+            sections, _ = pdf_parser(
+                filename if not binary else binary,
+                from_page=from_page,
+                to_page=to_page,
+                callback=callback,
+            )
         elif layout_recognizer == "MonkeyOCR":
             # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
             monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
@@ -145,8 +155,12 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             kb_id = kwargs.get('kb_id')
             pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout, kb_id=kb_id)
             logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}, KB ID: {kb_id}")
-            sections, _ = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
-                                      callback=callback)
+            sections, _ = pdf_parser(
+                filename if not binary else binary,
+                from_page=from_page,
+                to_page=to_page,
+                callback=callback,
+            )
             
             # 将解析器实例存储到模块中，供后续使用
             import sys

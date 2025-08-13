@@ -145,9 +145,9 @@ class MonkeyOCRResultParser:
         sections = []
         
         # 记录可用的图片文件（只在开始时打印一次）
-        if image_files:
-            available_images = list(image_files.keys())
-            logging.info(f"Available images for parsing: {available_images}")
+        # if image_files:
+        #     available_images = list(image_files.keys())
+        #     logging.info(f"Available images for parsing: {available_images}")
         
         # 分离表格和普通文本
         text_content, tables = self._extract_tables_from_markdown(markdown_content)
@@ -416,7 +416,7 @@ class MonkeyOCRResultParser:
                     # 获取图片的页面信息
                     page_info = self._get_image_page_info(matched_image, middle_json_data)
                     
-                    logging.info(f"Successfully loaded image: {matched_image} (from {page_info})")
+                    # logging.info(f"Successfully loaded image: {matched_image} (from {page_info})")
                     
                     # 如果图片来自第二页但出现在早期段落中，发出警告
                     if page_info == "page_1":  # 第二页（索引从0开始）
@@ -732,16 +732,16 @@ class MonkeyOCRResultParser:
             canvas_width = max(page_width, max_right)
             canvas_height = max_bottom - min_top
             
-            logging.info(f"Page size: {page_width} x {page_height}")
-            logging.info(f"Image bounds (using bbox): min_left={min_left}, min_top={min_top}, max_right={max_right}, max_bottom={max_bottom}")
-            logging.info(f"Canvas size: {canvas_width} x {canvas_height}")
+            # logging.info(f"Page size: {page_width} x {page_height}")
+            # logging.info(f"Image bounds (using bbox): min_left={min_left}, min_top={min_top}, max_right={max_right}, max_bottom={max_bottom}")
+            # logging.info(f"Canvas size: {canvas_width} x {canvas_height}")
             
             # 确保画布尺寸合理
             if canvas_width <= 0 or canvas_height <= 0:
                 logging.warning(f"Invalid canvas size: {canvas_width}x{canvas_height}, falling back to vertical combination")
                 return self._combine_images_vertical(images)
             
-            logging.info(f"Creating canvas with size: {canvas_width} x {canvas_height}")
+            # logging.info(f"Creating canvas with size: {canvas_width} x {canvas_height}")
             
             # 创建画布
             combined = Image.new('RGB', (int(canvas_width), int(canvas_height)), 'white')
@@ -759,10 +759,10 @@ class MonkeyOCRResultParser:
                 # 缩放图片到目标尺寸
                 if img.size != (target_width, target_height):
                     resized_img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
-                    logging.info(f"Image {i+1}: Resized from {img.size} to {resized_img.size}")
+                    # logging.info(f"Image {i+1}: Resized from {img.size} to {resized_img.size}")
                 else:
                     resized_img = img
-                    logging.info(f"Image {i+1}: No resize needed, size={img.size}")
+                    # logging.info(f"Image {i+1}: No resize needed, size={img.size}")
                 
                 # 边界检查：确保图片不超出画布
                 paste_x = max(0, min(x, int(canvas_width) - target_width))
@@ -1029,12 +1029,22 @@ class MonkeyOCRParser:
                 raise Exception(f"MonkeyOCR parsing failed: {response.get('message', 'Unknown error')}")
             
             callback(0.4, "下载解析结果...")
-            
+
             # 下载结果
             download_url = response.get('download_url')
             if not download_url:
                 raise Exception("No download URL in MonkeyOCR response")
-            
+
+            # 打印下载地址（解析为完整URL便于排查）
+            try:
+                if download_url.startswith('/'):
+                    resolved_url = urljoin(self.monkeyocr_url.rstrip('/') + '/', download_url.lstrip('/'))
+                else:
+                    resolved_url = download_url
+                logging.info(f"下载解析结果地址: {resolved_url}")
+            except Exception as e:
+                logging.warning(f"无法解析下载地址 {download_url}: {e}")
+
             zip_data = client.download_result(download_url)
             
             # 将ZIP数据落盘以便排查
@@ -1071,7 +1081,6 @@ class MonkeyOCRParser:
             
             # 调试：打印所有解压的文件
             # print(f"🔍 DEBUG: All extracted files: {list(content.keys())}")
-            logging.info(f"All extracted files: {list(content.keys())}")
             
             # 导入MinIO工具类
             try:
@@ -1122,7 +1131,7 @@ class MonkeyOCRParser:
                         logging.warning(f"Failed to decode markdown file {file_path}")
                 elif ext in parser.image_extensions:
                     image_files[file_path] = file_content
-                    logging.info(f"Found image file: {file_path}")
+                    # logging.info(f"Found image file: {file_path}")
                     
                     # 上传图片到MinIO
                     if minio_available and self.kb_id:
@@ -1135,7 +1144,7 @@ class MonkeyOCRParser:
                                 "tag": image_filename[image_filename.rindex('_')+1:],
                                 "location": minio_path
                             })
-                            logging.info(f"Successfully uploaded image to MinIO: {minio_path}")
+                            # logging.info(f"Successfully uploaded image to MinIO: {minio_path}")
                         except Exception as e:
                             logging.error(f"Failed to upload image {file_path} to MinIO: {e}")
                     else:
@@ -1201,7 +1210,7 @@ class MonkeyOCRParser:
             
             # 调试信息
             logging.info(f"Final minio_image_locations count: {len(minio_image_locations)}")
-            logging.info(f"Final minio_image_locations: {minio_image_locations}")
+            # logging.info(f"Final minio_image_locations: {minio_image_locations}")
             
             # 返回格式与其他PDF解析器一致
             return all_sections, all_tables  # (sections, tables)

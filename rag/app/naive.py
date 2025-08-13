@@ -440,8 +440,12 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
         else:
             if layout_recognizer == "Plain Text":
                 pdf_parser = PlainParser()
-                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
-                                              callback=callback)
+                sections, tables = pdf_parser(
+                    filename if not binary else binary,
+                    from_page=from_page,
+                    to_page=to_page,
+                    callback=callback,
+                )
             elif layout_recognizer == "MonkeyOCR":
                 # 从parser_config中获取MonkeyOCR配置，如果没有则使用默认配置
                 monkeyocr_url = os.environ.get('MONKEYOCR_URL', 'http://localhost:6006')
@@ -463,8 +467,12 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                 pdf_parser = VisionParser(vision_model=vision_model, **kwargs)
                 
                 # 对于非 MonkeyOCR 的解析器，需要调用解析
-                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
-                                              callback=callback)
+                sections, tables = pdf_parser(
+                    filename if not binary else binary,
+                    from_page=from_page,
+                    to_page=to_page,
+                    callback=callback,
+                )
             
             # 详细记录sections信息
             logging.info(f"PDF parsing completed - Total sections: {len(sections)}")

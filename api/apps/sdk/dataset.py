@@ -98,7 +98,7 @@ def create(tenant_id):
             chunk_method:
               type: string
               enum: ["naive", "book", "email", "laws", "manual", "one", "paper",
-                     "picture", "presentation", "qa", "table", "tag"
+                     "picture", "presentation", "qa", "table", "tag", "report"
                      ]
               description: Chunking method.
             parser_config:
@@ -299,7 +299,7 @@ def update(tenant_id, dataset_id):
             chunk_method:
               type: string
               enum: ["naive", "book", "email", "laws", "manual", "one", "paper",
-                     "picture", "presentation", "qa", "table", "tag"
+                     "picture", "presentation", "qa", "table", "tag", "report"
                      ]
               description: Updated chunking method.
             pagerank:
