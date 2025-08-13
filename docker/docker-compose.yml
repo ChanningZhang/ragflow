@@ -54,6 +54,11 @@ services:
       - ../api/apps/sdk/session.py:/ragflow/api/apps/sdk/session.py
       - ../rag/app/table.py:/ragflow/rag/app/table.py
       - ../deepdoc/parser/excel_parser.py:/ragflow/deepdoc/parser/excel_parser.py
+      - ../rag/app/report.py:/ragflow/rag/app/report.py
+      - ../api/db/__init__.py:/ragflow/api/db/__init__.py
+      - ../api/utils/api_utils.py:/ragflow/api/utils/api_utils.py
+      - ../api/utils/validation_utils.py:/ragflow/api/utils/validation_utils.py
+      - ../api/apps/sdk/dataset.py:/ragflow/api/apps/sdk/dataset.py
     env_file: .env
     environment:
       - TZ=${TIMEZONE}
