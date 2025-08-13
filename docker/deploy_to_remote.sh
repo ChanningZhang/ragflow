@@ -33,6 +33,7 @@ LOCAL_FILES=(
     "../api/db/services/task_service.py"
     "../api/db/services/conversation_service.py"
     "../api/db/services/canvas_service.py"
+    "../api/db/__init__.py"
     "../api/apps/api_app.py"
     "../api/apps/conversation_app.py"
     "../api/apps/sdk/session.py"
@@ -40,6 +41,10 @@ LOCAL_FILES=(
     "../deepdoc/parser/excel_parser.py"
     "../rag/app/qa.py"
     "./docker-compose.yml"
+    "../api/utils/api_utils.py"
+    "../rag/app/report.py"
+    "../api/utils/validation_utils.py"
+    "../api/apps/sdk/dataset.py"
 )
 
 REMOTE_FILES=(
@@ -60,14 +65,25 @@ REMOTE_FILES=(
     "${REMOTE_BASE_PATH}/api/db/services/task_service.py"
     "${REMOTE_BASE_PATH}/api/db/services/conversation_service.py"
     "${REMOTE_BASE_PATH}/api/db/services/canvas_service.py"
+    "${REMOTE_BASE_PATH}/api/db/__init__.py"
     "${REMOTE_BASE_PATH}/api/apps/api_app.py"
     "${REMOTE_BASE_PATH}/api/apps/conversation_app.py"
     "${REMOTE_BASE_PATH}/api/apps/sdk/session.py"
-    "${REMOTE_BASE_PATH}/docker/docker-compose.yml"
-    "${REMOTE_BASE_PATH}/rag/app/qa.py"
     "${REMOTE_BASE_PATH}/rag/app/table.py"
     "${REMOTE_BASE_PATH}/deepdoc/parser/excel_parser.py"
+    "${REMOTE_BASE_PATH}/rag/app/qa.py"
+    "${REMOTE_BASE_PATH}/docker/docker-compose.yml"
+    "${REMOTE_BASE_PATH}/api/utils/api_utils.py"
+    "${REMOTE_BASE_PATH}/rag/app/report.py"
+    "${REMOTE_BASE_PATH}/api/utils/validation_utils.py"
+    "${REMOTE_BASE_PATH}/api/apps/sdk/dataset.py"
 )
+
+# 校验本地与远程文件数组长度是否一致，防止错位拷贝
+if [[ ${#LOCAL_FILES[@]} -ne ${#REMOTE_FILES[@]} ]]; then
+    echo -e "${RED}错误: LOCAL_FILES 与 REMOTE_FILES 数量不一致 (${#LOCAL_FILES[@]} vs ${#REMOTE_FILES[@]})，已中止${NC}"
+    exit 1
+fi
 
 # 检查本地文件是否存在
 echo -e "${YELLOW}检查本地文件...${NC}"
