@@ -461,7 +461,7 @@ class FileService(CommonService):
     
     @classmethod
     @DB.connection_context()
-    def register_document(self, kb, filename, location, size, parse_id, user_id):
+    def register_document(self, kb, filename, location, size, parser_id, user_id):
         root_folder = self.get_root_folder(user_id)
         pf_id = root_folder["id"]
         self.init_knowledgebase_docs(pf_id, user_id)
@@ -497,7 +497,7 @@ class FileService(CommonService):
             doc = {
                 "id": doc_id,
                 "kb_id": kb.id,
-                "parser_id": parse_id if parse_id else self.get_parser(filetype, filename, kb.parser_id),
+                "parser_id": parser_id if parser_id else self.get_parser(filetype, filename, kb.parser_id),
                 "parser_config": kb.parser_config,
                 "created_by": user_id,
                 "type": filetype,

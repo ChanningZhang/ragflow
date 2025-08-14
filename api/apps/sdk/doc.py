@@ -209,7 +209,7 @@ def register(dataset_id, tenant_id):
     
     try:
         # 调用文件服务注册文档
-        doc = FileService.register_document(kb, req["filename"], req["location"], req["size"], tenant_id)
+        doc = FileService.register_document(kb, req["filename"], req["location"], req["size"], req["parser_id"],tenant_id)
                 
         if isinstance(doc, str):
             return get_error_data_result(message=f"Document registration failed: {doc}")
