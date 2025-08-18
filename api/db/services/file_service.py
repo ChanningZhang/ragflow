@@ -461,7 +461,7 @@ class FileService(CommonService):
     
     @classmethod
     @DB.connection_context()
-    def register_document(self, kb, filename, location, size, parser_id, user_id):
+    def register_document(self, kb, req, user_id):
         root_folder = self.get_root_folder(user_id)
         pf_id = root_folder["id"]
         self.init_knowledgebase_docs(pf_id, user_id)
@@ -472,11 +472,11 @@ class FileService(CommonService):
             doc_id = get_uuid()
             
             # Parse source location to extract bucket and object name
-            source_bucket, source_object = self._parse_source_location(location)
+            source_bucket, source_object = self._parse_source_location(req["location"])
             
             # Generate destination location in target bucket
             dest_bucket = kb.id
-            dest_object = filename
+            dest_object = req["filename"]
             
             # Ensure unique destination object name
             while STORAGE_IMPL.obj_exist(dest_bucket, dest_object):
@@ -493,17 +493,18 @@ class FileService(CommonService):
             if copy_result is None:
                 raise RuntimeError(f"Failed to copy file from {source_bucket}/{source_object} to {dest_bucket}/{dest_object}")
             
-            filetype = filename_type(filename)
+            filetype = filename_type(req["filename"])
             doc = {
                 "id": doc_id,
                 "kb_id": kb.id,
-                "parser_id": parser_id if parser_id else self.get_parser(filetype, filename, kb.parser_id),
+                "parser_id": req["parser_id"] if req["parser_id"] else self.get_parser(filetype, req["filename"], kb.parser_id),
                 "parser_config": kb.parser_config,
                 "created_by": user_id,
                 "type": filetype,
-                "name": filename,
+                "name": req["filename"],
                 "location": dest_object,
-                "size": size,
+                "size": req["size"],
+                "meta_fields": req["meta_fields"] if req["meta_fields"] else {},
             }
             DocumentService.insert(doc)
 

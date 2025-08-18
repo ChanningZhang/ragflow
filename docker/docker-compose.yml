@@ -3,6 +3,26 @@ include:
 
 # To ensure that the container processes the locally modified `service_conf.yaml.template` instead of the one included in its image, you need to mount the local `service_conf.yaml.template` to the container.
 services:
+  ai-core-app:
+    image: ai-core:latest
+    container_name: ai-core-app
+    platform: linux/arm64
+    ports:
+      - "8000:8000"
+    environment:
+      - RAGFLOW_API_URL=http://ragflow:9380
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_DB=1
+      - ENVIRONMENT=${ENVIRONMENT}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    networks:
+      - ragflow
+      
   ragflow:
     depends_on:
       mysql:
