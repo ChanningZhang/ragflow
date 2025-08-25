@@ -1,0 +1,93 @@
+include:
+  - ./docker-compose-base.yml
+
+# DotsOCR 集成版 RAGFlow - 只替换 ragflow 服务为自定义镜像
+services:
+  ai-core-app:
+    image: ai-core:latest
+    container_name: ai-core-app
+    platform: linux/arm64
+    ports:
+      - "8000:8000"
+    environment:
+      - RAGFLOW_API_URL=http://ragflow:9380
+      - RAGFLOW_API_KEY=${RAGFLOW_API_KEY}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_DB=1
+      - ENVIRONMENT=${ENVIRONMENT}
+      - LANGFUSE_PUBLIC_KEY=pk-lf-df373ba3-20a4-4b87-82ab-8e27aeb273ca
+      - LANGFUSE_SECRET_KEY=sk-lf-a91a2b3f-853f-4e78-b1b8-8bb851d34913
+      - LANGFUSE_HOST=http://116.62.164.168:3000
+      - DB_NAME=demo
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: on-failure
+    networks:
+      - ragflow
+      
+  ragflow:
+    depends_on:
+      mysql:
+        condition: service_healthy
+    # 使用已构建的 DotsOCR 集成镜像
+    image: ragflow-dotsocr:latest
+    # 如果需要构建，可以取消注释下面的 build 配置：
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.dotsocr.simple
+    # Example configuration to set up an MCP server:
+    # command:
+    #   - --enable-mcpserver
+    #   - --mcp-host=0.0.0.0
+    #   - --mcp-port=9382
+    #   - --mcp-base-url=http://127.0.0.1:9380
+    #   - --mcp-script-path=/ragflow/mcp/server/server.py
+    #   - --mcp-mode=self-host
+    #   - --mcp-host-api-key=ragflow-xxxxxxx
+    container_name: ragflow-server
+    ports:
+      - ${SVR_HTTP_PORT}:9380
+      - 80:80
+      - 443:443
+      - 5678:5678
+      - 5679:5679
+      - 9382:9382 # entry for MCP (host_port:docker_port). The docker_port must match the value you set for `mcp-port` above.
+    volumes:
+      - ./entrypoint.sh:/ragflow/entrypoint.sh
+      - ../ragflow-logs:/ragflow/logs
+      - ./nginx/ragflow.conf:/etc/nginx/conf.d/ragflow.conf
+      - ./nginx/proxy.conf:/etc/nginx/proxy.conf
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ../history_data_agent:/ragflow/history_data_agent
+      - ./service_conf.yaml.template:/ragflow/conf/service_conf.yaml.template
+    env_file: ./.env
+    environment:
+      - TZ=${TIMEZONE}
+      - HF_ENDPOINT=${HF_ENDPOINT}
+      - MACOS=${MACOS}
+      # MonkeyOCR 配置
+      - MONKEYOCR_URL=${MONKEYOCR_URL:-https://u727268-a9a5-bda5fc5a.nmb1.seetacloud.com:8443/monkeyocr}
+      - MONKEYOCR_TIMEOUT=${MONKEYOCR_TIMEOUT:-300}
+      # DotsOCR 配置
+      - DOTSOCR_ADDR=${DOTSOCR_ADDR:-https://u727268-956f-5a72ed95.nmb1.seetacloud.com:8443/dots/vllm}
+      - DOTSOCR_MODEL=${DOTSOCR_MODEL:-model}
+      - DOTSOCR_TEMPERATURE=${DOTSOCR_TEMPERATURE:-0.1}
+      - DOTSOCR_TOP_P=${DOTSOCR_TOP_P:-1.0}
+      - DOTSOCR_MAX_TOKENS=${DOTSOCR_MAX_TOKENS:-16384}
+      - DOTSOCR_THREADS=${DOTSOCR_THREADS:-4}
+      - DOTSOCR_DPI=${DOTSOCR_DPI:-200}
+    networks:
+      - ragflow
+    restart: on-failure
+    # https://docs.docker.com/engine/daemon/prometheus/#create-a-prometheus-configuration
+    # If you use Docker Desktop, the --add-host flag is optional. This flag ensures that the host's internal IP is exposed to the Prometheus container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

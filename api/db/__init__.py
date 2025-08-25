@@ -93,6 +93,7 @@ class ParserType(StrEnum):
     KG = "knowledge_graph"
     TAG = "tag"
     REPORT = "report"
+    DOTSOCR = "dotsocr"
 
 
 class FileSource(StrEnum):

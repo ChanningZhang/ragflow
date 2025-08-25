@@ -25,7 +25,7 @@ from PIL import Image
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
 from deepdoc.parser.pdf_parser import VisionParser
-from deepdoc.parser import MonkeyOCRParser
+from deepdoc.parser import MonkeyOCRParser, DotsOCRParser
 from rag.nlp import tokenize, is_english
 from rag.nlp import rag_tokenizer
 from deepdoc.parser import PdfParser, PptParser, PlainParser
@@ -155,6 +155,40 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             kb_id = kwargs.get('kb_id')
             pdf_parser = MonkeyOCRParser(monkeyocr_url=monkeyocr_url, timeout=timeout, kb_id=kb_id)
             logging.info(f"MonkeyOCR parser initialized - URL: {monkeyocr_url}, Timeout: {timeout}, KB ID: {kb_id}")
+            sections, _ = pdf_parser(
+                filename if not binary else binary,
+                from_page=from_page,
+                to_page=to_page,
+                callback=callback,
+            )
+            
+            # 将解析器实例存储到模块中，供后续使用
+            import sys
+            sys.modules[__name__]._current_parser = pdf_parser
+        elif layout_recognizer == "DotsOCR":
+            # 从环境变量或配置中获取DotsOCR配置
+            parser_config = kwargs.get("parser_config", {})
+            dotsocr_addr = parser_config.get('dotsocr_addr', os.environ.get('DOTSOCR_ADDR', 'localhost:8000'))
+            dotsocr_model = parser_config.get('dotsocr_model', os.environ.get('DOTSOCR_MODEL', 'model'))
+            temperature = parser_config.get('dotsocr_temperature', float(os.environ.get('DOTSOCR_TEMPERATURE', '0.1')))
+            top_p = parser_config.get('dotsocr_top_p', float(os.environ.get('DOTSOCR_TOP_P', '1.0')))
+            max_completion_tokens = int(parser_config.get('dotsocr_max_tokens', os.environ.get('DOTSOCR_MAX_TOKENS', '16384')))
+            num_thread = int(parser_config.get('dotsocr_threads', os.environ.get('DOTSOCR_THREADS', '64')))
+            dpi = int(parser_config.get('dotsocr_dpi', os.environ.get('DOTSOCR_DPI', '200')))
+            
+            kb_id = kwargs.get('kb_id')
+            pdf_parser = DotsOCRParser(
+                addr=dotsocr_addr,
+                model_name=dotsocr_model,
+                temperature=temperature,
+                top_p=top_p,
+                max_completion_tokens=max_completion_tokens,
+                num_thread=num_thread,
+                dpi=dpi,
+                kb_id=kb_id
+            )
+            logging.info(f"DotsOCR parser initialized - Server: {dotsocr_addr}, Model: {dotsocr_model}")
+            
             sections, _ = pdf_parser(
                 filename if not binary else binary,
                 from_page=from_page,

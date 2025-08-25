@@ -1,0 +1,77 @@
+# DotsOCR 集成的自定义 RAGFlow 镜像 - 简化版（跳过前端重新构建）
+FROM infiniflow/ragflow:v0.19.1-slim
+
+USER root
+WORKDIR /ragflow
+
+# 设置虚拟环境路径（基础镜像应该已包含，但明确声明）
+ENV VIRTUAL_ENV=/ragflow/.venv
+ENV PATH="${VIRTUAL_ENV}/bin:${PATH}"
+
+# 设置 DotsOCR 相关环境变量
+ENV DOTSOCR_ADDR=localhost:8000 \
+    DOTSOCR_MODEL=model \
+    DOTSOCR_TEMPERATURE=0.1 \
+    DOTSOCR_TOP_P=1.0 \
+    DOTSOCR_MAX_TOKENS=16384 \
+    DOTSOCR_THREADS=64 \
+    DOTSOCR_DPI=200
+
+# 安装系统依赖和 PyMuPDF (fitz) - DotsOCR 依赖
+RUN apt-get update && apt-get install -y \
+    libmupdf-dev \
+    mupdf-tools \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv add --python ${VIRTUAL_ENV}/bin/python "PyMuPDF>=1.23.0" \
+    && ${VIRTUAL_ENV}/bin/python -c "import fitz; print('PyMuPDF/fitz installed successfully, version:', fitz.__version__)"
+
+# 复制 DotsOCR 模块（新增）
+COPY dots_ocr/ /ragflow/dots_ocr/
+
+# 复制 history_data_agent 目录
+COPY history_data_agent/ /ragflow/history_data_agent/
+
+# 复制后端 API 相关文件
+COPY api/apps/sdk/doc.py /ragflow/api/apps/sdk/doc.py
+COPY api/apps/sdk/session.py /ragflow/api/apps/sdk/session.py
+COPY api/apps/sdk/dataset.py /ragflow/api/apps/sdk/dataset.py
+COPY api/apps/api_app.py /ragflow/api/apps/api_app.py
+COPY api/apps/conversation_app.py /ragflow/api/apps/conversation_app.py
+
+# 复制数据库服务相关文件
+COPY api/db/__init__.py /ragflow/api/db/__init__.py
+COPY api/db/db_models.py /ragflow/api/db/db_models.py
+COPY api/db/services/__init__.py /ragflow/api/db/services/__init__.py
+COPY api/db/services/file_service.py /ragflow/api/db/services/file_service.py
+COPY api/db/services/document_service.py /ragflow/api/db/services/document_service.py
+COPY api/db/services/document_content_service.py /ragflow/api/db/services/document_content_service.py
+COPY api/db/services/task_service.py /ragflow/api/db/services/task_service.py
+COPY api/db/services/conversation_service.py /ragflow/api/db/services/conversation_service.py
+COPY api/db/services/canvas_service.py /ragflow/api/db/services/canvas_service.py
+
+# 复制 API 工具文件
+COPY api/utils/api_utils.py /ragflow/api/utils/api_utils.py
+COPY api/utils/validation_utils.py /ragflow/api/utils/validation_utils.py
+
+# 复制 RAG 相关文件
+COPY rag/utils/minio_conn.py /ragflow/rag/utils/minio_conn.py
+COPY rag/svr/task_executor.py /ragflow/rag/svr/task_executor.py
+COPY rag/nlp/__init__.py /ragflow/rag/nlp/__init__.py
+COPY rag/app/naive.py /ragflow/rag/app/naive.py
+COPY rag/app/presentation.py /ragflow/rag/app/presentation.py
+COPY rag/app/table.py /ragflow/rag/app/table.py
+COPY rag/app/report.py /ragflow/rag/app/report.py
+
+# 复制文档解析器文件
+COPY deepdoc/parser/dotsocr_parser.py /ragflow/deepdoc/parser/dotsocr_parser.py
+COPY deepdoc/parser/monkeyocr_parser.py /ragflow/deepdoc/parser/monkeyocr_parser.py
+COPY deepdoc/parser/excel_parser.py /ragflow/deepdoc/parser/excel_parser.py
+COPY deepdoc/parser/__init__.py /ragflow/deepdoc/parser/__init__.py
+
+
+
+
+WORKDIR /ragflow
+
+# 使用原有的入口点
+ENTRYPOINT ["./entrypoint.sh"]

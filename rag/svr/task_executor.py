@@ -308,9 +308,11 @@ async def build_chunks(task, progress_callback):
                 output_buffer = BytesIO(d["image"])
             else:
                 d["image"].save(output_buffer, format='JPEG')
+            # 为图片文件添加 .jpg 后缀名
+            image_filename = f"{d['id']}.jpg"
             async with minio_limiter:
-                await trio.to_thread.run_sync(lambda: STORAGE_IMPL.put(task["kb_id"], d["id"], output_buffer.getvalue()))
-            d["img_id"] = "{}-{}".format(task["kb_id"], d["id"])
+                await trio.to_thread.run_sync(lambda: STORAGE_IMPL.put(task["kb_id"], image_filename, output_buffer.getvalue()))
+            d["img_id"] = "{}-{}".format(task["kb_id"], image_filename)
             del d["image"]
             docs.append(d)
         except Exception:
@@ -461,6 +463,7 @@ def save_general_document_content(doc_id, content, layout_recognize, file_name, 
     except Exception as e:
         logging.error(f"Failed to save document content for {doc_id}: {e}")
 
+
 async def save_document_content_unified(task, chunker, chunks):
     """
     统一保存文档内容到数据库
@@ -503,6 +506,29 @@ async def save_document_content_unified(task, chunker, chunks):
                         task["location"]
                     )
                     logging.info(f"Saved MonkeyOCR plain text for doc_id: {doc_id}")
+        elif layout_recognize == "DotsOCR":
+            # 尝试从chunker模块中获取当前解析器实例
+            current_parser = getattr(chunker, '_current_parser', None)
+            if current_parser and hasattr(current_parser, '_parse_result') and current_parser._parse_result:
+                # DotsOCR 分支 - 使用 DotsOCR 的保存逻辑
+                await trio.to_thread.run_sync(
+                    current_parser._save_dotsocr_files, 
+                    doc_id, 
+                    current_parser._parse_result
+                )
+                logging.info(f"Saved DotsOCR markdown files for doc_id: {doc_id}")
+            else:
+                content = extract_content_from_chunks(chunks)
+                if content.strip():  # 只有当内容不为空时才保存
+                    await trio.to_thread.run_sync(
+                        save_general_document_content,
+                        doc_id,
+                        content,
+                        layout_recognize,
+                        task["name"],
+                        task["location"]
+                    )
+                    logging.info(f"Saved DotsOCR plain text for doc_id: {doc_id}")
         else:
             # 其他解析器分支 - 提取内容并保存
             content = extract_content_from_chunks(chunks)

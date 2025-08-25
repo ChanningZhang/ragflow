@@ -532,6 +532,8 @@ class DocumentService(CommonService):
     @DB.connection_context()
     def do_cancel(cls, doc_id):
         try:
+            from api.db import TaskStatus
+            
             _, doc = DocumentService.get_by_id(doc_id)
             return doc.run == TaskStatus.CANCEL.value or doc.progress < 0
         except Exception:

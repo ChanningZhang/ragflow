@@ -29,10 +29,10 @@ from tika import parser
 
 from api.db import LLMType
 from api.db.services.llm_service import LLMBundle
-from deepdoc.parser import DocxParser, ExcelParser, HtmlParser, JsonParser, MarkdownParser, PdfParser, TxtParser, MonkeyOCRParser
+from deepdoc.parser import DocxParser, ExcelParser, HtmlParser, JsonParser, MarkdownParser, PdfParser, TxtParser, MonkeyOCRParser, DotsOCRParser
 from deepdoc.parser.figure_parser import VisionFigureParser, vision_figure_parser_figure_data_wrapper
 from deepdoc.parser.pdf_parser import PlainParser, VisionParser
-from rag.nlp import concat_img, find_codec, naive_merge, naive_merge_with_images, naive_merge_with_monkeyocr_images, naive_merge_docx, rag_tokenizer, tokenize_chunks, tokenize_chunks_with_images, tokenize_table
+from rag.nlp import concat_img, find_codec, naive_merge, naive_merge_with_images, naive_merge_with_image_lists, naive_merge_docx, rag_tokenizer, tokenize_chunks, tokenize_chunks_with_images, tokenize_table
 
 
 class Docx(DocxParser):
@@ -462,6 +462,40 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                 # 将解析器实例存储到模块中，供后续使用
                 import sys
                 sys.modules[__name__]._current_parser = pdf_parser
+            elif layout_recognizer == "DotsOCR":
+                # 从环境变量或配置中获取DotsOCR配置
+                # dotsocr_ip = parser_config.get('dotsocr_ip', os.environ.get('DOTSOCR_IP', 'localhost'))
+                # dotsocr_port = int(parser_config.get('dotsocr_port', os.environ.get('DOTSOCR_PORT', '8000')))
+                dotsocr_addr = parser_config.get('dotsocr_addr', os.environ.get('DOTSOCR_ADDR', 'localhost:8000'))
+                dotsocr_model = parser_config.get('dotsocr_model', os.environ.get('DOTSOCR_MODEL', 'model'))
+                temperature = parser_config.get('dotsocr_temperature', float(os.environ.get('DOTSOCR_TEMPERATURE', '0.1')))
+                top_p = parser_config.get('dotsocr_top_p', float(os.environ.get('DOTSOCR_TOP_P', '1.0')))
+                max_completion_tokens = int(parser_config.get('dotsocr_max_tokens', os.environ.get('DOTSOCR_MAX_TOKENS', '16384')))
+                num_thread = int(parser_config.get('dotsocr_threads', os.environ.get('DOTSOCR_THREADS', '64')))
+                dpi = int(parser_config.get('dotsocr_dpi', os.environ.get('DOTSOCR_DPI', '200')))
+                
+                kb_id = kwargs.get('kb_id')
+                pdf_parser = DotsOCRParser(
+                    # ip=dotsocr_ip,
+                    # port=dotsocr_port,
+                    addr=dotsocr_addr,
+                    model_name=dotsocr_model,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_completion_tokens=max_completion_tokens,
+                    num_thread=num_thread,
+                    dpi=dpi,
+                    kb_id=kb_id
+                )
+                logging.info(f"DotsOCR parser initialized - Server: {dotsocr_addr}, Model: {dotsocr_model}")
+                
+                # 解析文档
+                sections, tables = pdf_parser(filename, binary, from_page=from_page, to_page=to_page,
+                                              callback=callback)
+                
+                # 将解析器实例存储到模块中，供后续使用
+                import sys
+                sys.modules[__name__]._current_parser = pdf_parser
             else:
                 vision_model = LLMBundle(kwargs["tenant_id"], LLMType.IMAGE2TEXT, llm_name=layout_recognizer, lang=lang)
                 pdf_parser = VisionParser(vision_model=vision_model, **kwargs)
@@ -552,12 +586,16 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
 
     st = timer()
     
-    # 检查是否有图片信息（MonkeyOCR 和 Markdown 的情况）
+    # 检查是否有图片信息
     has_images = False
     if layout_recognizer == "MonkeyOCR" and sections:
-        # MonkeyOCR 返回的 sections 格式是 [(text, image_list), ...]，其中 image_list 是图片列表
-        has_images = any(len(section[1]) > 0 for section in sections if len(section) > 1)
-        logging.info(f"MonkeyOCR image check: has_images={has_images}, sections with images: {sum(1 for section in sections if len(section) > 1 and section[1])}")
+        # MonkeyOCR 返回格式: [(text, image_list), ...]，其中 image_list 是图片列表
+        has_images = any(len(section[1]) > 0 for section in sections if len(section) > 1 and isinstance(section[1], list))
+        logging.info(f"MonkeyOCR image check: has_images={has_images}, sections with images: {sum(1 for section in sections if len(section) > 1 and isinstance(section[1], list) and len(section[1]) > 0)}")
+    elif layout_recognizer == "DotsOCR" and sections:
+        # DotsOCR 返回格式: [(text, single_image), ...]，其中 single_image 是单个Image对象或None
+        has_images = any(section[1] is not None and hasattr(section[1], 'size') for section in sections if len(section) > 1)
+        logging.info(f"DotsOCR image check: has_images={has_images}, sections with images: {sum(1 for section in sections if len(section) > 1 and section[1] is not None and hasattr(section[1], 'size'))}")
     elif section_images:
         # Markdown 的情况
         has_images = any(image is not None for image in section_images)
@@ -565,9 +603,8 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
     
     if has_images:
         if layout_recognizer == "MonkeyOCR":
-            # MonkeyOCR: sections 格式是 [(text, image_list), ...]，其中 image_list 是图片列表
+            # MonkeyOCR 处理逻辑: sections 格式是 [(text, image_list), ...]，其中 image_list 是图片列表
             texts = [section[0] for section in sections]
-            # 直接使用图片列表，无需转换
             image_lists = [section[1] if len(section) > 1 else [] for section in sections]
             
             logging.info(f"MonkeyOCR: Processing {len(sections)} sections with {sum(1 for img_list in image_lists if img_list)} image lists")
@@ -581,7 +618,7 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                             logging.debug(f"  Image {j}: size={img.size}")
                         else:
                             logging.debug(f"  Image {j}: type={type(img)}")
-                        
+                            
                         # 尝试获取图片的文件名信息（如果有的话）
                         if hasattr(img, 'filename'):
                             logging.debug(f"  Image {j} filename: {img.filename}")
@@ -590,12 +627,53 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
                 else:
                     logging.debug(f"Section {i}: no images, text preview: {text[:50]}...")
             
-            chunks, images = naive_merge_with_monkeyocr_images(texts, image_lists, pdf_parser,
+            chunks, images = naive_merge_with_image_lists(texts, image_lists, pdf_parser,
                                             int(parser_config.get(
                                                 "chunk_token_num", 128)), parser_config.get(
                                                 "delimiter", "\n!?。；！？"))
             
             logging.info(f"MonkeyOCR: Generated {len(chunks)} chunks with {sum(1 for img in images if img is not None)} images")
+            
+            # 详细记录每个chunk的信息
+            for i, (chunk, img) in enumerate(zip(chunks, images)):
+                if img:
+                    logging.debug(f"Chunk {i}: has image (size={img.size}), text length: {len(chunk)}")
+                    logging.debug(f"Chunk {i} text preview: {chunk[:100]}...")
+                else:
+                    logging.debug(f"Chunk {i}: no image, text length: {len(chunk)}")
+            
+            if kwargs.get("section_only", False):
+                return chunks
+            
+            res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
+            
+        elif layout_recognizer == "DotsOCR":
+            # DotsOCR 处理逻辑: sections 格式是 [(text, single_image), ...]，其中 single_image 是单个Image对象
+            texts = [section[0] for section in sections]
+            # 将单个图片转换为图片列表格式，以便复用现有的处理函数
+            image_lists = []
+            for section in sections:
+                if len(section) > 1 and section[1] is not None:
+                    image_lists.append([section[1]])  # 单个图片包装成列表
+                else:
+                    image_lists.append([])
+            
+            logging.info(f"DotsOCR: Processing {len(sections)} sections with {sum(1 for img_list in image_lists if img_list)} images")
+            
+            # 详细记录每个section的图片信息
+            for i, (text, img_list) in enumerate(zip(texts, image_lists)):
+                if img_list:
+                    img = img_list[0]  # DotsOCR每个section只有一个图片
+                    logging.debug(f"Section {i}: single image (size={img.size}), text preview: {text[:50]}...")
+                else:
+                    logging.debug(f"Section {i}: no image, text preview: {text[:50]}...")
+            
+            chunks, images = naive_merge_with_image_lists(texts, image_lists, pdf_parser,
+                                            int(parser_config.get(
+                                                "chunk_token_num", 128)), parser_config.get(
+                                                "delimiter", "\n!?。；！？"))
+            
+            logging.info(f"DotsOCR: Generated {len(chunks)} chunks with {sum(1 for img in images if img is not None)} images")
             
             # 详细记录每个chunk的信息
             for i, (chunk, img) in enumerate(zip(chunks, images)):
@@ -624,6 +702,42 @@ def chunk(filename, binary=None, from_page=0, to_page=100000,
             res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images))
     else:
         logging.info("No images found, using standard naive_merge")
+        
+        # 确保 sections 格式适合标准的 naive_merge 函数
+        # naive_merge 期望格式: [(text, pos), ...]，其中 pos 是字符串
+        if layout_recognizer == "MonkeyOCR" and sections:
+            # 将 MonkeyOCR 格式 [(text, image_list), ...] 转换为标准格式 [(text, ""), ...]
+            logging.info("Converting MonkeyOCR format sections to standard format")
+            standard_sections = []
+            for section in sections:
+                if len(section) >= 2:
+                    text = section[0] if section[0] else ""
+                    standard_sections.append((text, ""))  # pos设为空字符串
+                elif len(section) == 1:
+                    text = section[0] if section[0] else ""
+                    standard_sections.append((text, ""))
+                else:
+                    logging.warning(f"Unexpected MonkeyOCR section format: {section}")
+                    continue
+            sections = standard_sections
+            logging.info(f"Converted {len(sections)} MonkeyOCR sections to standard format")
+        elif layout_recognizer == "DotsOCR" and sections:
+            # 将 DotsOCR 格式 [(text, single_image), ...] 转换为标准格式 [(text, ""), ...]
+            logging.info("Converting DotsOCR format sections to standard format")
+            standard_sections = []
+            for section in sections:
+                if len(section) >= 2:
+                    text = section[0] if section[0] else ""
+                    standard_sections.append((text, ""))  # pos设为空字符串
+                elif len(section) == 1:
+                    text = section[0] if section[0] else ""
+                    standard_sections.append((text, ""))
+                else:
+                    logging.warning(f"Unexpected DotsOCR section format: {section}")
+                    continue
+            sections = standard_sections
+            logging.info(f"Converted {len(sections)} DotsOCR sections to standard format")
+        
         chunks = naive_merge(
             sections, int(parser_config.get(
                 "chunk_token_num", 128)), parser_config.get(

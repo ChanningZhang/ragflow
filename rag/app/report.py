@@ -26,7 +26,7 @@ from rag.nlp import rag_tokenizer, tokenize_table, tokenize_chunks, tokenize_chu
 
 def report_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None, chunk_token_num=128, delimiter="\n。；！？"):
     """
-    Report 专用的 MonkeyOCR 图片合并函数，基于 naive_merge_with_monkeyocr_images
+    Report 专用的图片合并函数，基于 naive_merge_with_image_lists
     主要区别：按页合并（每页一个 chunk）
     """
     logging.info(f"report_merge_with_monkeyocr_images called with {len(texts)} texts, {len(image_lists)} image_lists")

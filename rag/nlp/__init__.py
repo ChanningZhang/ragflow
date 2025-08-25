@@ -595,11 +595,12 @@ def naive_merge_with_images(texts, images, chunk_token_num=128, delimiter="\n。
     return cks, result_images
 
 
-def naive_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None, chunk_token_num=128, delimiter="\n。；！？"):
+def naive_merge_with_image_lists(texts, image_lists, ocr_parser=None, chunk_token_num=128, delimiter="\n。；！？"):
     """
-    专门处理 MonkeyOCR 图片列表的合并函数，支持位置信息合并和基于content_list.json的段落分割
+    通用的图片列表合并函数，支持多种OCR解析器的图片列表格式
+    兼容 MonkeyOCR, DotsOCR 等不同的 OCR 系统
     """
-    logging.info(f"naive_merge_with_monkeyocr_images called with {len(texts)} texts, {len(image_lists)} image_lists")
+    logging.info(f"naive_merge_with_image_lists called with {len(texts)} texts, {len(image_lists)} image_lists")
     
     if not texts or len(texts) != len(image_lists):
         logging.error(f"Mismatch: texts={len(texts)}, image_lists={len(image_lists)}")
@@ -612,9 +613,9 @@ def naive_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None,
     
     # 获取页面尺寸信息
     page_width, page_height = None, None
-    if monkeyocr_parser:
+    if ocr_parser:
         try:
-            parse_result = monkeyocr_parser.get_parse_result()
+            parse_result = ocr_parser.get_parse_result()
             if parse_result and parse_result.get('middle_json'):
                 middle_json_data = parse_result['middle_json']
                 pdf_info = middle_json_data.get("pdf_info", [])
@@ -636,28 +637,51 @@ def naive_merge_with_monkeyocr_images(texts, image_lists, monkeyocr_parser=None,
             logging.error(f"Failed to get page size from parser: {e}")
             raise ValueError(f"Failed to get page size from parser: {e}")
     else:
-        logging.error("No monkeyocr_parser provided")
-        raise ValueError("No monkeyocr_parser provided, cannot determine page size")
+        logging.warning("No OCR parser provided for page size information")
+        # 对于没有解析器的情况，使用默认页面尺寸
+        page_width, page_height = 595, 842  # A4 默认尺寸
     
     if not page_width or not page_height or page_width <= 0 or page_height <= 0:
-        logging.error(f"Invalid page dimensions: {page_width}x{page_height}")
-        raise ValueError(f"Invalid page dimensions: {page_width}x{page_height}")
+        logging.warning(f"Invalid page dimensions: {page_width}x{page_height}, using default A4 size")
+        page_width, page_height = 595, 842
     
-    # 尝试使用content_list.json进行基于段落的分割
-    content_list = monkeyocr_parser.get_content_list() if monkeyocr_parser else None
+    # 检查是否是DotsOCR的页面级chunk（每页一个完整chunk，不需要再分割）
+    if (ocr_parser and hasattr(ocr_parser, '__class__') and 
+        'DotsOCRParser' in str(type(ocr_parser)) and 
+        len(texts) > 0):
+        # DotsOCR已经按页面分好chunk，直接使用，不再按分隔符分割
+        result_chunks = []
+        result_images = []
+        
+        for i, (text, image_list) in enumerate(zip(texts, image_lists)):
+            if text.strip():  # 只保留有内容的chunk
+                result_chunks.append(text.strip())
+                # 每页对应一个图片
+                if image_list and len(image_list) > 0:
+                    # 直接使用页面的第一个图片（DotsOCR每页一个图片）
+                    result_images.append(image_list[0])
+                else:
+                    result_images.append(None)
+                    
+        return result_chunks, result_images
+    
+    # 尝试使用content_list.json进行基于段落的分割（仅支持特定解析器）
+    content_list = None
+    if ocr_parser and hasattr(ocr_parser, 'get_content_list'):
+        content_list = ocr_parser.get_content_list()
     if content_list:
         logging.info(f"Using content_list.json with {len(content_list)} paragraphs for chunk splitting")
         try:
-            return _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_parser, chunk_token_num, page_width, page_height)
+            return _naive_merge_with_content_list(texts, image_lists, content_list, ocr_parser, chunk_token_num, page_width, page_height)
         except Exception as e:
             logging.warning(f"Content list based splitting failed: {e}, falling back to delimiter-based splitting")
-            return _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_token_num, delimiter, page_width, page_height)
+            return _naive_merge_with_delimiter(texts, image_lists, ocr_parser, chunk_token_num, delimiter, page_width, page_height)
     else:
         logging.warning("No content_list.json available, falling back to delimiter-based splitting")
-        return _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_token_num, delimiter, page_width, page_height)
+        return _naive_merge_with_delimiter(texts, image_lists, ocr_parser, chunk_token_num, delimiter, page_width, page_height)
 
 
-def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_parser, chunk_token_num, page_width, page_height):
+def _naive_merge_with_content_list(texts, image_lists, content_list, ocr_parser, chunk_token_num, page_width, page_height):
     """
     基于content_list.json的段落进行chunk分割
     """
@@ -770,8 +794,8 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
     
     # 处理每个chunk的图片合并
     # 在合成前，将chunk_image_paths赋值到parser，供后续使用
-    if hasattr(monkeyocr_parser, '__setattr__'):
-        monkeyocr_parser._chunk_image_paths = chunk_image_paths
+    if ocr_parser and hasattr(ocr_parser, '__setattr__'):
+        ocr_parser._chunk_image_paths = chunk_image_paths
 
     logging.info(f"Processing {len(chunk_image_lists)} chunks for image combination")
     for i, images in enumerate(chunk_image_lists):
@@ -788,14 +812,14 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
             
             try:
                 # 获取解析结果
-                parse_result = monkeyocr_parser.get_parse_result()
+                parse_result = ocr_parser.get_parse_result()
                 if parse_result and parse_result.get('middle_json'):
                     # 使用 MonkeyOCR 的位置信息处理图片
                     logging.info(f"MonkeyOCR: Processing {len(images)} images in chunk {i} with position info")
                     # 获取当前chunk对应的图片路径
                     chunk_image_paths = []
-                    if hasattr(monkeyocr_parser, '_chunk_image_paths') and i < len(monkeyocr_parser._chunk_image_paths):
-                        chunk_image_paths = monkeyocr_parser._chunk_image_paths[i]
+                    if hasattr(ocr_parser, '_chunk_image_paths') and i < len(ocr_parser._chunk_image_paths):
+                        chunk_image_paths = ocr_parser._chunk_image_paths[i]
                     result_images[i] = combine_images_with_monkeyocr_position(images, parse_result, chunk_image_paths)
                     if result_images[i] and hasattr(result_images[i], 'size'):
                         logging.info(f"Chunk {i}: Combined image size={result_images[i].size}")
@@ -823,7 +847,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, monkeyocr_p
     return filtered_chunks, filtered_images
 
 
-def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_token_num, delimiter, page_width, page_height):
+def _naive_merge_with_delimiter(texts, image_lists, ocr_parser, chunk_token_num, delimiter, page_width, page_height):
     """
     基于delimiter的传统chunk分割方式（回退方案）
     """
@@ -878,9 +902,6 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
         # 收集图片到当前chunk
         if image_list:
             chunk_image_lists[-1].extend(image_list)
-            logging.info(f"Added {len(image_list)} images to chunk {len(cks)-1}, total images in chunk: {len(chunk_image_lists[-1])}")
-        else:
-            logging.info(f"No images to add to chunk {len(cks)-1}")
 
     dels = get_delimiters(delimiter)
     logging.info(f"Text processing with delimiter: {dels}")
@@ -890,69 +911,66 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
         splited_sec = re.split(r"(%s)" % dels, text)
         logging.info(f"Section {i} split into {len(splited_sec)} parts")
         
-        # 标记是否已经为当前section添加过图片
-        section_images_added = False
-        
+        # 收集有效的文本段
+        valid_subsecs = []
         for j, sub_sec in enumerate(splited_sec):
             if re.match(f"^{dels}$", sub_sec):
-                logging.info(f"Section {i} part {j}: delimiter, skipping")
                 continue
             
             # 过滤掉空的sub_sec
             if not sub_sec.strip():
-                logging.info(f"Section {i} part {j}: empty text, skipping")
                 continue
             
-            # 只有第一个有效的sub_sec才添加图片，避免重复
-            if not section_images_added and image_list:
-                logging.info(f"Section {i} part {j}: adding chunk with {len(sub_sec)} chars and {len(image_list)} images")
-                add_chunk(sub_sec, image_list)
-                section_images_added = True
-            else:
-                logging.info(f"Section {i} part {j}: adding chunk with {len(sub_sec)} chars, no images (already added or none available)")
+            valid_subsecs.append((j, sub_sec))
+        
+        # 将图片平均分配给有效的文本段
+        if valid_subsecs and image_list:
+            num_valid_subsecs = len(valid_subsecs)
+            images_per_subsec = len(image_list) // num_valid_subsecs
+            remaining_images = len(image_list) % num_valid_subsecs
+            
+            image_start = 0
+            for subsec_idx, (j, sub_sec) in enumerate(valid_subsecs):
+                # 计算当前subsec应该分配的图片数量
+                current_images_count = images_per_subsec
+                if subsec_idx < remaining_images:
+                    current_images_count += 1
+                
+                # 分配图片
+                if current_images_count > 0:
+                    assigned_images = image_list[image_start:image_start + current_images_count]
+                    image_start += current_images_count
+                    add_chunk(sub_sec, assigned_images)
+                else:
+                    add_chunk(sub_sec, [])
+        else:
+            # 如果没有图片或没有有效文本段，按原逻辑处理
+            for j, sub_sec in valid_subsecs:
                 add_chunk(sub_sec, [])
 
     # 处理每个chunk的图片合并
-    logging.info(f"Processing {len(chunk_image_lists)} chunks for image combination")
     for i, images in enumerate(chunk_image_lists):
-        logging.info(f"Processing chunk {i}: {len(images)} images")
         if not images:
             result_images[i] = None
-            logging.info(f"Chunk {i}: No images")
         else:
             # 不管单张还是多张图片，都使用统一的处理逻辑
-            logging.info(f"Chunk {i}: Processing {len(images)} images")
-            for j, img in enumerate(images):
-                if hasattr(img, 'size'):
-                    logging.info(f"  Chunk {i} image {j}: size={img.size}")
             
-            if monkeyocr_parser:
+            if ocr_parser and hasattr(ocr_parser, 'get_parse_result'):
                 try:
                     # 获取解析结果
-                    parse_result = monkeyocr_parser.get_parse_result()
-                    logging.info(f"Chunk {i}: Got parse result: {parse_result is not None}")
+                    parse_result = ocr_parser.get_parse_result()
                     if parse_result and parse_result.get('middle_json'):
                         # 使用 MonkeyOCR 的位置信息处理图片（单张和多张统一处理）
-                        logging.info(f"MonkeyOCR: Processing {len(images)} images in chunk {i} with position info")
                         result_images[i] = combine_images_with_monkeyocr_position(images, parse_result)
-                        if result_images[i] and hasattr(result_images[i], 'size'):
-                            logging.info(f"Chunk {i}: Combined image size={result_images[i].size}")
                     else:
                         # 回退到垂直拼接
-                        logging.info(f"MonkeyOCR: No parse result available, using vertical combination for chunk {i}")
                         result_images[i] = concat_img_with_page_limit(images, max_width=page_width, max_height=page_height)
-                        if result_images[i] and hasattr(result_images[i], 'size'):
-                            logging.info(f"Chunk {i}: Vertically combined image size={result_images[i].size}")
                 except Exception as e:
-                    logging.error(f"Error processing images for chunk {i}: {e}")
+                    logging.warning(f"Error processing images for chunk {i}: {e}")
                     result_images[i] = concat_img_with_page_limit(images, max_width=page_width, max_height=page_height)
-                    if result_images[i] and hasattr(result_images[i], 'size'):
-                        logging.info(f"Chunk {i}: Fallback combined image size={result_images[i].size}")
             else:
                 # 无MonkeyOCR解析器，使用页面尺寸限制的垂直拼接
                 result_images[i] = concat_img_with_page_limit(images, max_width=page_width, max_height=page_height)
-                if result_images[i] and hasattr(result_images[i], 'size'):
-                    logging.info(f"Chunk {i}: Default combined image size={result_images[i].size}")
     
     # 过滤掉空的chunk
     filtered_chunks = []
@@ -962,7 +980,8 @@ def _naive_merge_with_delimiter(texts, image_lists, monkeyocr_parser, chunk_toke
             filtered_chunks.append(chunk)
             filtered_images.append(img)
     
-    logging.info(f"naive_merge_with_delimiter completed: {len(filtered_chunks)} chunks (filtered from {len(cks)})")
+    logging.info(f"naive_merge_with_image_lists completed: {len(filtered_chunks)} chunks (filtered from {len(cks)})")
+    
     return filtered_chunks, filtered_images
 
 
@@ -1318,3 +1337,6 @@ def get_delimiters(delimiters: str):
     dels_pattern = "|".join(dels)
 
     return dels_pattern
+
+
+

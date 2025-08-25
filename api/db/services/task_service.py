@@ -249,6 +249,8 @@ class TaskService(CommonService):
         Returns:
             bool: True if the task should be cancelled, False otherwise.
         """
+        from api.db import TaskStatus
+        
         task = cls.model.get_by_id(id)
         _, doc = DocumentService.get_by_id(task.doc_id)
         return doc.run == TaskStatus.CANCEL.value or doc.progress < 0

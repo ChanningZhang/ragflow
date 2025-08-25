@@ -29,6 +29,7 @@ class DocumentContentService(CommonService):
     @DB.connection_context()
     def create_document_content(cls, doc_id, monkeyocr_middle_json=None, 
                                monkeyocr_content_list=None, monkeyocr_image_locations=None, 
+                               dotsocr_md=None, dotsocr_json=None, dotsocr_page=None,
                                file_path=None, file_name=None, content=None, 
                                layout_recognize=None, content_type=None):
         """
@@ -61,6 +62,9 @@ class DocumentContentService(CommonService):
                 "monkeyocr_middle_json": monkeyocr_middle_json,
                 "monkeyocr_content_list": monkeyocr_content_list,
                 "monkeyocr_image_locations": monkeyocr_image_locations,
+                "dotsocr_md": dotsocr_md,
+                "dotsocr_json": dotsocr_json,
+                "dotsocr_page": dotsocr_page,
                 "file_path": file_path,
                 "file_name": file_name or (os.path.basename(file_path) if file_path else None),
                 "content_size": content_size,
