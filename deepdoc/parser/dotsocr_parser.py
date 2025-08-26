@@ -28,6 +28,13 @@ from PIL import Image
 from dots_ocr.parser import DotsOCRParser as BaseDotsOCRParser
 from dots_ocr.utils.doc_utils import load_images_from_pdf
 
+# 导入任务取消异常类
+class TaskCanceledException(Exception):
+    """任务取消异常"""
+    def __init__(self, msg):
+        self.msg = msg
+        super().__init__(msg)
+
 class DotsOCRParser:
     """DotsOCR PDF解析器 - 调用 dots_ocr 模块进行文档解析"""
     
@@ -163,10 +170,12 @@ class DotsOCRParser:
                 for page_idx, image in enumerate(selected_images):
                     actual_page = start_page + page_idx
                     logging.debug(f"正在解析第 {actual_page + 1} 页 (索引: {page_idx})")
-                    callback(0.3 + 0.6 * (page_idx / len(selected_images)), 
-                            f"解析第 {actual_page + 1} 页...")
                     
                     try:
+                        # 检查任务是否被取消
+                        callback(0.3 + 0.6 * (page_idx / len(selected_images)), 
+                                f"解析第 {actual_page + 1} 页...")
+                        
                         # 使用基础 DotsOCRParser 解析单页图片
                         page_result = self.dots_parser._parse_single_image(
                             origin_image=image,
@@ -176,6 +185,10 @@ class DotsOCRParser:
                             source="pdf",
                             page_idx=actual_page
                         )
+                        
+                        # 解析完成后检查是否被取消
+                        callback(0.3 + 0.6 * ((page_idx + 0.8) / len(selected_images)), 
+                                f"第 {actual_page + 1} 页解析完成，检查状态...")
                         
                         # 收集页面尺寸信息
                         input_width = page_result.get('input_width', image.width)
@@ -240,6 +253,10 @@ class DotsOCRParser:
                         
                         logging.debug(f"页面 {actual_page + 1} 解析完成，文本长度: {len(page_text)}")
                         
+                    except TaskCanceledException as e:
+                        # 任务取消异常需要向上传播，中断解析
+                        logging.info(f"[DotsOCR] 任务在解析第 {actual_page + 1} 页时被取消: {e.msg}")
+                        raise e
                     except Exception as e:
                         error_msg = f"解析第 {actual_page + 1} 页时出错: {str(e)}"
                         logging.error(error_msg)
@@ -299,6 +316,10 @@ class DotsOCRParser:
                 except:
                     pass
                     
+        except TaskCanceledException as e:
+            # 任务取消异常需要向上传播，不应该被当作普通错误处理
+            logging.info(f"[DotsOCR] 任务被取消，停止解析: {e.msg}")
+            raise e
         except Exception as e:
             error_msg = f"DotsOCR 解析失败: {str(e)}"
             logging.error(error_msg)
@@ -445,9 +466,9 @@ class DotsOCRParser:
             for page_idx, md_content in enumerate(dotsocr_md_list):
                 if md_content and md_content.strip():
                     if combined_content:
-                        combined_content += f"\n\n=== 第 {page_idx + 1} 页 ===\n\n{md_content}"
+                        combined_content += f"\n\n{md_content}"
                     else:
-                        combined_content = f"=== 第 {page_idx + 1} 页 ===\n\n{md_content}"
+                        combined_content = f"\n\n{md_content}"
             
             try:
                 logging.info(f"准备创建文档内容记录，参数:")
