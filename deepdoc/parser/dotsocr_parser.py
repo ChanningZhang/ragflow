@@ -28,9 +28,6 @@ from PIL import Image
 from dots_ocr.parser import DotsOCRParser as BaseDotsOCRParser
 from dots_ocr.utils.doc_utils import load_images_from_pdf
 
-# STORAGE_IMPL 将在实际需要时导入，避免启动时的警告
-
-
 class DotsOCRParser:
     """DotsOCR PDF解析器 - 调用 dots_ocr 模块进行文档解析"""
     
@@ -90,6 +87,9 @@ class DotsOCRParser:
         # 存储解析结果，用于 get_parse_result() 方法
         self._parse_result = None
         
+        # 存储原始文件名信息，用于后续保存到document_content表
+        self._original_filename = None
+        
         logging.info(f"DotsOCRParser 初始化完成，服务器: {addr}, 模型: {model_name}")
     
     def __call__(self, filename, binary=None, from_page=0, to_page=100000, 
@@ -110,6 +110,9 @@ class DotsOCRParser:
         """
         if callback is None:
             callback = lambda prog, msg: None
+        
+        # 存储原始文件名信息，用于后续保存到document_content表
+        self._original_filename = filename
         
         # 验证输入
         if not binary:
@@ -279,10 +282,11 @@ class DotsOCRParser:
                     'content_list': [],
                     'total_pages': total_pages,
                     'processed_pages': len(selected_images),
-                    'dotsocr_md': dotsocr_md_list,
-                    'dotsocr_json': dotsocr_json_list,
+                    'dotsocr_md_list': dotsocr_md_list,
+                    'dotsocr_json_list': dotsocr_json_list,
                     'dotsocr_json_data': dotsocr_json_data_list,  # 添加内存中的 JSON 数据
-                    'dotsocr_page': dotsocr_page_list
+                    'dotsocr_page_list': dotsocr_page_list,
+                    'original_filename': self._original_filename  # 添加原始文件名信息
                 }
                 
                 callback(1.0, "DotsOCR 解析完成")
@@ -308,7 +312,8 @@ class DotsOCRParser:
                 'content_list': [],
                 'total_pages': 0,
                 'processed_pages': 0,
-                'error': error_msg
+                'error': error_msg,
+                'original_filename': self._original_filename  # 添加原始文件名信息
             }
             
             return [], []
@@ -395,7 +400,7 @@ class DotsOCRParser:
         
         Args:
             doc_id: 文档ID
-            parse_result: 解析结果字典，包含 dotsocr_md、dotsocr_json、dotsocr_page 等数据
+            parse_result: 解析结果字典，包含 dotsocr_md_list、dotsocr_json_list、dotsocr_page_list 等数据
         """
         if not parse_result:
             logging.warning(f"DotsOCR 解析结果为空，文档ID: {doc_id}")
@@ -414,50 +419,63 @@ class DotsOCRParser:
                 STORAGE_IMPL = None
             
             # 获取 DotsOCR 数据
-            dotsocr_md = parse_result.get('dotsocr_md', [])
-            dotsocr_json_paths = parse_result.get('dotsocr_json', [])
-            dotsocr_page = parse_result.get('dotsocr_page', [])
+            dotsocr_md_list = parse_result.get('dotsocr_md_list', [])
+            dotsocr_json_paths = parse_result.get('dotsocr_json_list', [])
+            dotsocr_page_list = parse_result.get('dotsocr_page_list', [])
             middle_json_data = parse_result.get('middle_json', {})
             
-            # 直接使用内存中的 JSON 数据
-            dotsocr_json = parse_result.get('dotsocr_json_data', [])
+            # 获取原始文件名信息，参考MonkeyOCR的实现
+            original_filename = parse_result.get('original_filename')
             
-            logging.info(f"DotsOCR 数据统计: md页数={len(dotsocr_md)}, json内容数={len(dotsocr_json)}, page图片数={len(dotsocr_page)}")
-            logging.info(f"JSON 内容统计: {len([j for j in dotsocr_json if j is not None])} 个有效 JSON 对象")
-            logging.info(f"kb_id: {self.kb_id}, STORAGE_IMPL: {STORAGE_IMPL is not None}")
+            # 获取 JSON 数据内容（从内存中）
+            dotsocr_json_data = parse_result.get('dotsocr_json_data', [])
             
-            # 图片已经在解析过程中直接上传到 MinIO，无需额外处理
-            logging.info(f"DotsOCR 页面图片已在解析过程中上传到 MinIO: {len([p for p in dotsocr_page if p])} 个图片")
+            logging.info(f"DotsOCR 数据统计: md页数={len(dotsocr_md_list)}, json内容数={len(dotsocr_json_data)}, page图片数={len(dotsocr_page_list)}")
+            logging.info(f"JSON 内容统计: {len([j for j in dotsocr_json_data if j is not None])} 个有效 JSON 对象")
             
-            # 创建合并的文档内容（将所有页面的markdown内容合并）
+            # 检查是否有有效的解析结果
+            if not dotsocr_md_list or not any(dotsocr_md_list):
+                logging.warning(f"DotsOCR 解析结果为空，文档ID: {doc_id}")
+                return
+                
+            logging.info(f"DotsOCR 页面图片已在解析过程中上传到 MinIO: {len([p for p in dotsocr_page_list if p])} 个图片")
+            
+            # 合并所有页面的 Markdown 内容
             combined_content = ""
-            for page_idx, md_content in enumerate(dotsocr_md):
-                if md_content:
-                    combined_content += f"\n\n=== 第 {page_idx + 1} 页 ===\n\n{md_content}"
+            for page_idx, md_content in enumerate(dotsocr_md_list):
+                if md_content and md_content.strip():
+                    if combined_content:
+                        combined_content += f"\n\n=== 第 {page_idx + 1} 页 ===\n\n{md_content}"
+                    else:
+                        combined_content = f"=== 第 {page_idx + 1} 页 ===\n\n{md_content}"
             
             try:
                 logging.info(f"准备创建文档内容记录，参数:")
                 logging.info(f"  - doc_id: {doc_id}")
                 logging.info(f"  - combined_content length: {len(combined_content.strip())}")
-                logging.info(f"  - dotsocr_md: {[md[:50] + '...' if md and len(md) > 50 else md for md in dotsocr_md]}")
-                logging.info(f"  - dotsocr_json: {len([j for j in dotsocr_json if j is not None])} JSON objects (showing first 100 chars of each): {[str(j)[:100] + '...' if j and len(str(j)) > 100 else j for j in dotsocr_json[:2]]}")
-                logging.info(f"  - dotsocr_page: {dotsocr_page}")
+                logging.info(f"  - file_path: {original_filename}")
+                logging.info(f"  - file_name: {os.path.basename(original_filename) if original_filename else None}")
+                logging.info(f"  - dotsocr_md_list: {[md[:50] + '...' if md and len(md) > 50 else md for md in dotsocr_md_list]}")
+                logging.info(f"  - dotsocr_json_list: {len([j for j in dotsocr_json_data if j is not None])} JSON objects (showing first 100 chars of each): {[str(j)[:100] + '...' if j and len(str(j)) > 100 else j for j in dotsocr_json_data[:2]]}")
+                logging.info(f"  - dotsocr_page_list: {dotsocr_page_list}")
                 
-                # 创建文档内容记录
+                # 创建文档内容记录，参考MonkeyOCR的实现传递file_path和file_name
                 result = DocumentContentService.create_document_content(
                     doc_id=doc_id,
                     content=combined_content.strip(),
-                    dotsocr_md=dotsocr_md,
-                    dotsocr_json=dotsocr_json,
-                    dotsocr_page=dotsocr_page,
+                    dotsocr_md_list=dotsocr_md_list,
+                    dotsocr_json_list=dotsocr_json_data,
+                    dotsocr_page_list=dotsocr_page_list,
+                    file_path=original_filename,
+                    file_name=os.path.basename(original_filename) if original_filename else None,
                     layout_recognize="DotsOCR",
                     content_type="markdown"
                 )
                 
                 logging.info(f"成功保存 DotsOCR 解析结果: 文档ID={doc_id}, 返回结果: {result}")
-                logging.info(f"  - Markdown 页数: {len([md for md in dotsocr_md if md])}")
-                logging.info(f"  - JSON 文件数: {len([json for json in dotsocr_json if json])}")
-                logging.info(f"  - 图片文件数: {len([page for page in dotsocr_page if page])}")
+                logging.info(f"  - Markdown 页数: {len([md for md in dotsocr_md_list if md])}")
+                logging.info(f"  - JSON 文件数: {len([json for json in dotsocr_json_data if json])}")
+                logging.info(f"  - 图片文件数: {len([page for page in dotsocr_page_list if page])}")
                     
             except Exception as e:
                 logging.error(f"保存 DotsOCR 解析结果失败: {e}")

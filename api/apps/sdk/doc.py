@@ -231,7 +231,7 @@ def get_doc_content(tenant_id, dataset_id, document_id):
     content = DocumentContentService.get_by_doc_id(document_id)
     if not content:
         return get_error_data_result(message="Document content not found.")
-    return get_result(data=content[0].to_dict())
+    return get_result(data=content.to_dict())
 
 @manager.route("/datasets/<dataset_id>/documents/<document_id>", methods=["PUT"])  # noqa: F821
 @token_required

@@ -645,25 +645,8 @@ def naive_merge_with_image_lists(texts, image_lists, ocr_parser=None, chunk_toke
         logging.warning(f"Invalid page dimensions: {page_width}x{page_height}, using default A4 size")
         page_width, page_height = 595, 842
     
-    # 检查是否是DotsOCR的页面级chunk（每页一个完整chunk，不需要再分割）
-    if (ocr_parser and hasattr(ocr_parser, '__class__') and 
-        'DotsOCRParser' in str(type(ocr_parser)) and 
-        len(texts) > 0):
-        # DotsOCR已经按页面分好chunk，直接使用，不再按分隔符分割
-        result_chunks = []
-        result_images = []
-        
-        for i, (text, image_list) in enumerate(zip(texts, image_lists)):
-            if text.strip():  # 只保留有内容的chunk
-                result_chunks.append(text.strip())
-                # 每页对应一个图片
-                if image_list and len(image_list) > 0:
-                    # 直接使用页面的第一个图片（DotsOCR每页一个图片）
-                    result_images.append(image_list[0])
-                else:
-                    result_images.append(None)
-                    
-        return result_chunks, result_images
+    # DotsOCR 在 naive 模式下需要基于 Markdown 进行智能分割，不再使用页面级chunk
+    # 移除了 DotsOCR 的特殊处理，让它走正常的分割流程
     
     # 尝试使用content_list.json进行基于段落的分割（仅支持特定解析器）
     content_list = None
@@ -845,6 +828,7 @@ def _naive_merge_with_content_list(texts, image_lists, content_list, ocr_parser,
     
     logging.info(f"naive_merge_with_content_list completed: {len(filtered_chunks)} chunks (filtered from {len(cks)})")
     return filtered_chunks, filtered_images
+
 
 
 def _naive_merge_with_delimiter(texts, image_lists, ocr_parser, chunk_token_num, delimiter, page_width, page_height):

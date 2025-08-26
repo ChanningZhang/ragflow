@@ -29,7 +29,7 @@ class DocumentContentService(CommonService):
     @DB.connection_context()
     def create_document_content(cls, doc_id, monkeyocr_middle_json=None, 
                                monkeyocr_content_list=None, monkeyocr_image_locations=None, 
-                               dotsocr_md=None, dotsocr_json=None, dotsocr_page=None,
+                               dotsocr_md_list=None, dotsocr_json_list=None, dotsocr_page_list=None,
                                file_path=None, file_name=None, content=None, 
                                layout_recognize=None, content_type=None):
         """
@@ -62,9 +62,9 @@ class DocumentContentService(CommonService):
                 "monkeyocr_middle_json": monkeyocr_middle_json,
                 "monkeyocr_content_list": monkeyocr_content_list,
                 "monkeyocr_image_locations": monkeyocr_image_locations,
-                "dotsocr_md": dotsocr_md,
-                "dotsocr_json": dotsocr_json,
-                "dotsocr_page": dotsocr_page,
+                "dotsocr_md_list": dotsocr_md_list,
+                "dotsocr_json_list": dotsocr_json_list,
+                "dotsocr_page_list": dotsocr_page_list,
                 "file_path": file_path,
                 "file_name": file_name or (os.path.basename(file_path) if file_path else None),
                 "content_size": content_size,
@@ -93,13 +93,14 @@ class DocumentContentService(CommonService):
             doc_id: 文档ID
             
         Returns:
-            List[DocumentContent]: 文档内容记录列表
+            DocumentContent: 文档内容记录对象，如果未找到则返回None
         """
         try:
-            return list(cls.model.select().where(cls.model.doc_id == doc_id))
+            result = cls.model.select().where(cls.model.doc_id == doc_id).order_by(cls.model.create_time.desc()).limit(1)
+            return result[0] if result.count() > 0 else None
         except Exception as e:
             logging.error(f"获取文档内容记录失败: {e}")
-            return []
+            return None
 
     @classmethod
     @DB.connection_context()

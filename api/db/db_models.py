@@ -850,9 +850,9 @@ class DocumentContent(DataBaseModel):
     monkeyocr_middle_json = JSONField(null=True, help_text="MonkeyOCR 中间 JSON 数据")
     monkeyocr_content_list = JSONField(null=True, help_text="MonkeyOCR 内容列表数据")
     monkeyocr_image_locations = JSONField(null=True, help_text="MonkeyOCR 图片位置数组，对象结构: {image_name, location}")
-    dotsocr_md = JSONField(null=True, help_text="DotsOCR Markdown 数组，每一项代表对应页的 markdown 内容")
-    dotsocr_json = JSONField(null=True, help_text="DotsOCR JSON 数组，每一项代表对应页的 json 文件路径")
-    dotsocr_page = JSONField(null=True, help_text="DotsOCR 图片数组，每一项代表对应页的图片文件路径")
+    dotsocr_md_list = JSONField(null=True, help_text="DotsOCR Markdown 数组，每一项代表对应页的 markdown 内容")
+    dotsocr_json_list = JSONField(null=True, help_text="DotsOCR JSON 数组，每一项代表对应页的 json 数据内容")
+    dotsocr_page_list = JSONField(null=True, help_text="DotsOCR 图片数组，每一项代表对应页的图片文件路径")
     file_path = CharField(max_length=512, null=True, help_text="原始文件路径")
     file_name = CharField(max_length=255, null=True, help_text="文件名")
     content_size = IntegerField(default=0, help_text="内容大小（字节）")
@@ -958,14 +958,15 @@ def migrate_db():
     
     # 添加 DotsOCR 相关字段到 document_content 表
     try:
-        migrate(migrator.add_column("document_content", "dotsocr_md", JSONField(null=True, help_text="DotsOCR Markdown 数组，每一项代表对应页的 markdown 内容")))
+        migrate(migrator.add_column("document_content", "dotsocr_md_list", JSONField(null=True, help_text="DotsOCR Markdown 数组，每一项代表对应页的 markdown 内容")))
     except Exception:
         pass
     try:
-        migrate(migrator.add_column("document_content", "dotsocr_json", JSONField(null=True, help_text="DotsOCR JSON 数组，每一项代表对应页的 json 文件路径")))
+        migrate(migrator.add_column("document_content", "dotsocr_json_list", JSONField(null=True, help_text="DotsOCR JSON 数组，每一项代表对应页的 json 数据内容")))
     except Exception:
         pass
     try:
-        migrate(migrator.add_column("document_content", "dotsocr_page", JSONField(null=True, help_text="DotsOCR 图片数组，每一项代表对应页的图片文件路径")))
+        migrate(migrator.add_column("document_content", "dotsocr_page_list", JSONField(null=True, help_text="DotsOCR 图片数组，每一项代表对应页的图片文件路径")))
     except Exception:
         pass
+    
