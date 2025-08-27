@@ -259,15 +259,125 @@ class LLMBundle:
         return emd, used_tokens
 
     def similarity(self, query: str, texts: list):
+        import numpy as np
+        
+        # 详细日志：LLMBundle层面
+        logging.info(f"[LLMBundle] 开始Rerank调用 - tenant: {self.tenant_id}, model: {self.llm_name}")
+        logging.info(f"[LLMBundle] 输入验证 - query长度: {len(query) if query else 0}, texts数量: {len(texts)}")
+        
+        # 检查langfuse状态
+        has_langfuse = self.langfuse is not None
+        logging.info(f"[LLMBundle] Langfuse状态: {'启用' if has_langfuse else '禁用'}")
+        
+        generation = None
         if self.langfuse:
-            generation = self.trace.generation(name="similarity", model=self.llm_name, input={"query": query, "texts": texts})
+            try:
+                generation = self.trace.generation(name="similarity", model=self.llm_name, input={"query": query, "texts": texts})
+                logging.info(f"[LLMBundle] Langfuse generation已创建")
+            except Exception as langfuse_e:
+                logging.error(f"[LLMBundle] 创建Langfuse generation失败: {langfuse_e}")
 
-        sim, used_tokens = self.mdl.similarity(query, texts)
-        if not TenantLLMService.increase_usage(self.tenant_id, self.llm_type, used_tokens):
-            logging.error("LLMBundle.similarity can't update token usage for {}/RERANK used_tokens: {}".format(self.tenant_id, used_tokens))
+        try:
+            logging.info(f"[LLMBundle] 开始调用底层模型similarity方法")
+            sim, used_tokens = self.mdl.similarity(query, texts)
+            logging.info(f"[LLMBundle] 底层模型调用完成")
+            
+            # 详细检查返回结果
+            logging.info(f"[LLMBundle] 返回结果类型 - sim: {type(sim)}, tokens: {type(used_tokens)}")
+            
+            if sim is None:
+                logging.error(f"[LLMBundle] 严重错误: similarity返回None")
+                # 创建默认结果避免langfuse记录NULL
+                sim = np.array([0.0] * len(texts)) if texts else np.array([])
+                used_tokens = 0
+                
+            elif isinstance(sim, np.ndarray):
+                sim_stats = {
+                    'shape': sim.shape,
+                    'dtype': sim.dtype,
+                    'non_zero_count': np.count_nonzero(sim),
+                    'min': float(np.min(sim)) if sim.size > 0 else 0,
+                    'max': float(np.max(sim)) if sim.size > 0 else 0,
+                    'mean': float(np.mean(sim)) if sim.size > 0 else 0
+                }
+                logging.info(f"[LLMBundle] 相似性分数统计: {sim_stats}")
+                
+                # 检查是否所有分数都为0
+                if sim.size > 0 and np.all(sim == 0):
+                    logging.warning(f"[LLMBundle] 警告: 所有相似性分数都为0")
+                    
+                # 检查是否有NaN或无穷大值
+                if np.any(np.isnan(sim)):
+                    logging.error(f"[LLMBundle] 错误: 相似性分数包含NaN值")
+                if np.any(np.isinf(sim)):
+                    logging.error(f"[LLMBundle] 错误: 相似性分数包含无穷大值")
+            else:
+                logging.warning(f"[LLMBundle] 警告: 相似性分数类型不是ndarray: {type(sim)}")
+            
+            logging.info(f"[LLMBundle] Token使用量: {used_tokens}")
+            
+        except Exception as model_e:
+            logging.error(f"[LLMBundle] 底层模型调用失败: {type(model_e).__name__}: {model_e}")
+            logging.error(f"[LLMBundle] 调用上下文 - tenant: {self.tenant_id}, model: {self.llm_name}")
+            
+            # 为langfuse创建默认结果，避免记录异常
+            sim = np.array([0.0] * len(texts)) if texts else np.array([])
+            used_tokens = 0
+            logging.info(f"[LLMBundle] 使用默认结果避免langfuse记录异常")
 
-        if self.langfuse:
-            generation.end(usage_details={"total_tokens": used_tokens})
+        # 更新token使用量
+        try:
+            if not TenantLLMService.increase_usage(self.tenant_id, self.llm_type, used_tokens):
+                logging.error("LLMBundle.similarity can't update token usage for {}/RERANK used_tokens: {}".format(self.tenant_id, used_tokens))
+            else:
+                logging.debug(f"[LLMBundle] Token使用量更新成功: {used_tokens}")
+        except Exception as usage_e:
+            logging.error(f"[LLMBundle] 更新token使用量失败: {usage_e}")
+
+        # 结束langfuse记录
+        if generation:
+            try:
+                # 确保传给langfuse的数据不为None
+                usage_details = {"total_tokens": used_tokens if used_tokens is not None else 0}
+                
+                # 构建output数据，包含每个文本的相似性分数和统计信息
+                output_data = {
+                    "individual_scores": sim.tolist() if hasattr(sim, 'tolist') else list(sim) if hasattr(sim, '__iter__') else [sim],
+                    "similarity_scores": {
+                        "type": type(sim).__name__,
+                        "shape": getattr(sim, 'shape', 'N/A'),
+                        "non_zero_count": int(np.count_nonzero(sim)) if hasattr(sim, 'size') and sim.size > 0 else 0,
+                        "min": float(np.min(sim)) if hasattr(sim, 'size') and sim.size > 0 else 0,
+                        "max": float(np.max(sim)) if hasattr(sim, 'size') and sim.size > 0 else 0,
+                        "mean": float(np.mean(sim)) if hasattr(sim, 'size') and sim.size > 0 else 0
+                    },
+                    "texts_count": len(texts),
+                    "query_length": len(query) if query else 0,
+                    "top_k_scores": []
+                }
+                
+                # 添加top-k分数信息，便于查看重排序结果
+                if hasattr(sim, 'size') and sim.size > 0:
+                    # 获取前10个最高分数的索引和分数
+                    top_indices = np.argsort(sim)[-10:][::-1]  # 降序排列，取前10
+                    output_data["top_k_scores"] = [
+                        {"index": int(idx), "score": float(sim[idx]), "text_preview": texts[idx][:100] + "..." if len(texts[idx]) > 100 else texts[idx]}
+                        for idx in top_indices
+                    ]
+                
+                generation.end(output=output_data, usage_details=usage_details)
+                logging.info(f"[LLMBundle] Langfuse generation已结束，记录tokens: {used_tokens}, output: {output_data}")
+            except Exception as langfuse_e:
+                logging.error(f"[LLMBundle] 结束Langfuse generation失败: {langfuse_e}")
+
+        # 最终结果日志
+        result_summary = {
+            'sim_type': type(sim).__name__,
+            'sim_shape': getattr(sim, 'shape', 'N/A'),
+            'tokens': used_tokens,
+            'has_langfuse': has_langfuse
+        }
+        logging.info(f"[LLMBundle] 调用完成，返回结果: {result_summary}")
 
         return sim, used_tokens
 
