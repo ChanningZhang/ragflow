@@ -22,8 +22,11 @@ COPY docs/ ./docs/
 
 # 复制修改的前端文件（只有这些文件变化时才重新构建）
 COPY web/src/constants/knowledge.ts ./web/src/constants/knowledge.ts
+COPY web/src/components/layout-recognize.tsx ./web/src/components/
+COPY web/src/components/layout-recognize-form-field.tsx ./web/src/components/
 COPY web/src/pages/add-knowledge/components/knowledge-setting/configuration/report.tsx ./web/src/pages/add-knowledge/components/knowledge-setting/configuration/
 COPY web/src/pages/add-knowledge/components/knowledge-setting/configuration/index.tsx ./web/src/pages/add-knowledge/components/knowledge-setting/configuration/
+COPY web/src/pages/dataset/setting/index.tsx ./web/src/pages/dataset/setting/
 COPY web/src/pages/dataset/setting/configuration/report.tsx ./web/src/pages/dataset/setting/configuration/
 COPY web/src/pages/dataset/setting/chunk-method-form.tsx ./web/src/pages/dataset/setting/
 COPY web/src/components/chunk-method-modal/hooks.ts ./web/src/components/chunk-method-modal/

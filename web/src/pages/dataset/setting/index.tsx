@@ -21,6 +21,8 @@ import { useFetchKnowledgeConfigurationOnMount } from './hooks';
 const enum DocumentType {
   DeepDOC = 'DeepDOC',
   PlainText = 'Plain Text',
+  DotsOCR = 'DotsOCR',
+  MonkeyOCR = 'MonkeyOCR',
 }
 
 const initialEntityTypes = [

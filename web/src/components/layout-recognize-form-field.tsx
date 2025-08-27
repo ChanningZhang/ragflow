@@ -16,6 +16,8 @@ import { RAGFlowSelect } from './ui/select';
 export const enum DocumentType {
   DeepDOC = 'DeepDOC',
   PlainText = 'Plain Text',
+  DotsOCR = 'DotsOCR',
+  MonkeyOCR = 'MonkeyOCR',
 }
 
 export function LayoutRecognizeFormField() {
@@ -25,8 +27,20 @@ export function LayoutRecognizeFormField() {
   const allOptions = useSelectLlmOptionsByModelType();
 
   const options = useMemo(() => {
-    const list = [DocumentType.DeepDOC, DocumentType.PlainText].map((x) => ({
-      label: x === DocumentType.PlainText ? t(camelCase(x)) : 'DeepDoc',
+    const list = [
+      DocumentType.DeepDOC,
+      DocumentType.PlainText,
+      DocumentType.DotsOCR,
+      DocumentType.MonkeyOCR,
+    ].map((x) => ({
+      label:
+        x === DocumentType.PlainText
+          ? t(camelCase(x))
+          : x === DocumentType.DotsOCR
+            ? 'DotsOCR'
+            : x === DocumentType.MonkeyOCR
+              ? 'MonkeyOCR'
+              : 'DeepDoc',
       value: x,
     }));
 
