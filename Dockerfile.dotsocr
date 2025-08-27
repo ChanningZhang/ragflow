@@ -48,6 +48,7 @@ COPY api/db/services/document_content_service.py /ragflow/api/db/services/docume
 COPY api/db/services/task_service.py /ragflow/api/db/services/task_service.py
 COPY api/db/services/conversation_service.py /ragflow/api/db/services/conversation_service.py
 COPY api/db/services/canvas_service.py /ragflow/api/db/services/canvas_service.py
+COPY api/db/services/llm_service.py /ragflow/api/db/services/llm_service.py
 
 # 复制 API 工具文件
 COPY api/utils/api_utils.py /ragflow/api/utils/api_utils.py
@@ -67,9 +68,6 @@ COPY deepdoc/parser/dotsocr_parser.py /ragflow/deepdoc/parser/dotsocr_parser.py
 COPY deepdoc/parser/monkeyocr_parser.py /ragflow/deepdoc/parser/monkeyocr_parser.py
 COPY deepdoc/parser/excel_parser.py /ragflow/deepdoc/parser/excel_parser.py
 COPY deepdoc/parser/__init__.py /ragflow/deepdoc/parser/__init__.py
-
-
-
 
 WORKDIR /ragflow
 

@@ -22,6 +22,8 @@ import re
 import base64
 import uuid
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 from PIL import Image
 
@@ -99,6 +101,107 @@ class DotsOCRParser:
         
         logging.info(f"DotsOCRParser 初始化完成，服务器: {addr}, 模型: {model_name}")
     
+    def _process_single_page(self, page_idx, image, start_page, prompt_mode, lock=None):
+        """
+        处理单页图片的函数，用于并发执行
+        
+        Args:
+            page_idx: 页面索引（相对于selected_images的索引）
+            image: 页面图片对象
+            start_page: 起始页码
+            prompt_mode: 提示模式
+            lock: 线程锁（可选）
+            
+        Returns:
+            dict: 包含页面处理结果的字典
+        """
+        actual_page = start_page + page_idx
+        logging.debug(f"正在解析第 {actual_page + 1} 页 (索引: {page_idx})")
+        
+        try:
+            # 使用基础 DotsOCRParser 解析单页图片
+            page_result = self.dots_parser._parse_single_image(
+                origin_image=image,
+                prompt_mode=prompt_mode,
+                save_dir=self.dots_parser.output_dir,
+                save_name=f"page_{actual_page}",
+                source="pdf",
+                page_idx=actual_page
+            )
+                                    
+            # 收集页面尺寸信息
+            input_width = page_result.get('input_width', image.width)
+            input_height = page_result.get('input_height', image.height)
+            page_info = {
+                "page_no": actual_page,
+                "page_size": [input_width, input_height]
+            }
+            
+            # 提取 Markdown 内容（优先使用内存数据）
+            raw_page_text = page_result.get('md_content_data', "")
+            if raw_page_text:
+                # 处理 base64 图片
+                page_text = self._process_base64_images(raw_page_text, actual_page)
+            else:
+                page_text = f"第 {actual_page + 1} 页解析失败"
+            
+            # 处理 JSON 数据
+            layout_info_data = page_result.get('layout_info_data')
+            
+            # 处理图片数据并上传到 MinIO
+            dotsocr_page_filename = None
+            layout_image_data = page_result.get('layout_image_data')
+            if layout_image_data and self.kb_id:
+                try:
+                    from rag.utils.storage_factory import STORAGE_IMPL
+                except ImportError:
+                    STORAGE_IMPL = None
+                    
+                if STORAGE_IMPL:
+                    try:
+                        image_filename = f"dotsocr_page_{page_idx}_{uuid.uuid4().hex}.jpg"
+                        STORAGE_IMPL.put(self.kb_id, image_filename, layout_image_data)
+                        dotsocr_page_filename = image_filename
+                        logging.info(f"Successfully uploaded DotsOCR page image to MinIO: {self.kb_id}/{image_filename}")
+                    except Exception as e:
+                        logging.error(f"Failed to upload page image to MinIO: {e}")
+            
+            # 创建页面图片对象用于chunk预览
+            page_image = None
+            if layout_image_data:
+                try:
+                    from PIL import Image
+                    import io
+                    image_buffer = io.BytesIO(layout_image_data)
+                    page_image = Image.open(image_buffer).convert('RGB')
+                    logging.debug(f"成功创建第 {actual_page + 1} 页图片对象")
+                except Exception as e:
+                    logging.warning(f"创建第 {actual_page + 1} 页图片对象失败: {e}")
+                    page_image = None
+            
+            logging.debug(f"页面 {actual_page + 1} 解析完成，文本长度: {len(page_text)}")
+            
+            return {
+                'success': True,
+                'page_idx': page_idx,
+                'actual_page': actual_page,
+                'page_info': page_info,
+                'page_text': page_text,
+                'page_image': page_image,
+                'layout_info_data': layout_info_data,
+                'dotsocr_page_filename': dotsocr_page_filename
+            }
+            
+        except Exception as e:
+            error_msg = f"解析第 {actual_page + 1} 页时出错: {str(e)}"
+            logging.error(error_msg)
+            return {
+                'success': False,
+                'page_idx': page_idx,
+                'actual_page': actual_page,
+                'error_msg': error_msg
+            }
+    
     def __call__(self, filename, binary=None, from_page=0, to_page=100000, 
                  prompt_mode="prompt_layout_all_en", callback=None, **kwargs):
         """
@@ -131,7 +234,7 @@ class DotsOCRParser:
                 binary = f.read()
         
         try:
-            callback(0.1, "开始 DotsOCR 解析...")
+            callback(0.03, "开始 DotsOCR 解析...")
             
             # 创建临时文件用于处理
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
@@ -139,7 +242,7 @@ class DotsOCRParser:
                 temp_file_path = temp_file.name
             
             try:
-                callback(0.2, "PDF 转换为图片...")
+                callback(0.08, "PDF 转换为图片...")
                 
                 # 使用 dots_ocr 的工具将 PDF 转换为图片
                 images = load_images_from_pdf(temp_file_path, dpi=self.dots_parser.dpi)
@@ -155,118 +258,89 @@ class DotsOCRParser:
                 selected_images = images[start_page:end_page]
                 
                 logging.info(f"PDF 转换完成，总页数: {total_pages}, 处理页数: {len(selected_images)}")
-                callback(0.3, f"开始解析 {len(selected_images)} 页...")
+                callback(0.1, f"总共 {len(selected_images)} 页，开始解析...")
                 
-                # 逐页解析并收集结果
-                all_sections = []
+                # 逐页解析并收集结果（使用并发处理）
                 all_tables = []
-                page_infos = []  # 存储页面信息
-                dotsocr_md_list = []  # 存储每页的 markdown 内容
-                dotsocr_json_list = []  # 存储每页的 json 文件路径
-                dotsocr_json_data_list = []  # 存储每页的 json 数据内容（内存中）
-                dotsocr_page_list = []  # 存储每页的图片文件路径
                 
                 logging.info(f"开始解析 {len(selected_images)} 页，从第 {start_page + 1} 页到第 {start_page + len(selected_images)} 页")
-                for page_idx, image in enumerate(selected_images):
-                    actual_page = start_page + page_idx
-                    logging.debug(f"正在解析第 {actual_page + 1} 页 (索引: {page_idx})")
+                
+                # 初始化结果列表，预分配空间以确保按索引存储
+                num_pages = len(selected_images)
+                page_infos = [None] * num_pages
+                dotsocr_md_list = [None] * num_pages
+                dotsocr_json_data_list = [None] * num_pages
+                dotsocr_json_list = [None] * num_pages
+                dotsocr_page_list = [None] * num_pages
+                all_sections = [None] * num_pages
+                
+                # 创建线程池并发执行
+                thread_pool_size = min(4, num_pages)  # 使用配置的线程数，但不超过页面数
+                logging.info(f"使用线程池大小: {thread_pool_size} 并发处理 {num_pages} 页")
+                
+                with ThreadPoolExecutor(max_workers=thread_pool_size) as executor:
+                    # 提交所有任务
+                    future_to_page = {}
+                    for page_idx, image in enumerate(selected_images):
+                        future = executor.submit(self._process_single_page, page_idx, image, start_page, prompt_mode)
+                        future_to_page[future] = page_idx
                     
-                    try:
-                        # 检查任务是否被取消
-                        callback(0.3 + 0.6 * (page_idx / len(selected_images)), 
-                                f"解析第 {actual_page + 1} 页...")
+                    # 收集结果（Fork and Join模式）
+                    completed_count = 0
+                    for future in as_completed(future_to_page):
+                        page_idx = future_to_page[future]
                         
-                        # 使用基础 DotsOCRParser 解析单页图片
-                        page_result = self.dots_parser._parse_single_image(
-                            origin_image=image,
-                            prompt_mode=prompt_mode,
-                            save_dir=self.dots_parser.output_dir,
-                            save_name=f"page_{actual_page}",
-                            source="pdf",
-                            page_idx=actual_page
-                        )
-                        
-                        # 解析完成后检查是否被取消
-                        callback(0.3 + 0.6 * ((page_idx + 0.8) / len(selected_images)), 
-                                f"第 {actual_page + 1} 页解析完成，检查状态...")
-                        
-                        # 收集页面尺寸信息
-                        input_width = page_result.get('input_width', image.width)
-                        input_height = page_result.get('input_height', image.height)
-                        page_infos.append({
-                            "page_no": actual_page,
-                            "page_size": [input_width, input_height]
-                        })
-                        
-                        # 提取 Markdown 内容（优先使用内存数据）
-                        raw_page_text = page_result.get('md_content_data', "")
-                        if raw_page_text:
-                            # 处理 base64 图片
-                            page_text = self._process_base64_images(raw_page_text, actual_page)
-                        else:
-                            page_text = f"第 {actual_page + 1} 页解析失败"
-                        
-                        # 收集 DotsOCR 内存数据
-                        # Markdown 内容（替换base64后）
-                        dotsocr_md_list.append(page_text if page_text != f"第 {actual_page + 1} 页解析失败" else None)
-                        
-                        # JSON 数据：直接使用内存中的数据
-                        layout_info_data = page_result.get('layout_info_data')
-                        dotsocr_json_data_list.append(layout_info_data)
-                        dotsocr_json_list.append(None)  # 不再需要文件路径
-                        
-                        # 图片数据：直接使用内存中的数据，上传到 MinIO
-                        layout_image_data = page_result.get('layout_image_data')
-                        if layout_image_data and self.kb_id:
-                            try:
-                                from rag.utils.storage_factory import STORAGE_IMPL
-                            except ImportError:
-                                STORAGE_IMPL = None
-                        if layout_image_data and self.kb_id and STORAGE_IMPL:
-                            try:
-                                image_filename = f"dotsocr_page_{page_idx}_{uuid.uuid4().hex}.jpg"
-                                STORAGE_IMPL.put(self.kb_id, image_filename, layout_image_data)
-                                dotsocr_page_list.append(image_filename)
-                                logging.info(f"Successfully uploaded DotsOCR page image to MinIO: {self.kb_id}/{image_filename}")
-                            except Exception as e:
-                                logging.error(f"Failed to upload page image to MinIO: {e}")
-                                dotsocr_page_list.append(None)
-                        else:
-                            dotsocr_page_list.append(None)
-                        
-                        # 创建页面图片对象用于chunk预览
-                        page_image = None
-                        layout_image_data = page_result.get('layout_image_data')
-                        if layout_image_data:
-                            try:
-                                from PIL import Image
-                                import io
-                                image_buffer = io.BytesIO(layout_image_data)
-                                page_image = Image.open(image_buffer).convert('RGB')
-                                logging.debug(f"成功创建第 {actual_page + 1} 页图片对象")
-                            except Exception as e:
-                                logging.warning(f"创建第 {actual_page + 1} 页图片对象失败: {e}")
-                                page_image = None
-                        
-                        # 添加到结果中
-                        all_sections.append((page_text, page_image))
-                        
-                        logging.debug(f"页面 {actual_page + 1} 解析完成，文本长度: {len(page_text)}")
-                        
-                    except TaskCanceledException as e:
-                        # 任务取消异常需要向上传播，中断解析
-                        logging.info(f"[DotsOCR] 任务在解析第 {actual_page + 1} 页时被取消: {e.msg}")
-                        raise e
-                    except Exception as e:
-                        error_msg = f"解析第 {actual_page + 1} 页时出错: {str(e)}"
-                        logging.error(error_msg)
-                        all_sections.append((error_msg, None))
-                        
-                        # 为失败的页面添加空值
-                        dotsocr_md_list.append(None)
-                        dotsocr_json_data_list.append(None)
-                        dotsocr_json_list.append(None)
-                        dotsocr_page_list.append(None)
+                        try:
+                            # 更新进度回调
+                            completed_count += 1
+                            callback(0.1 + 0.8 * (completed_count / num_pages), 
+                                   f"已完成 {completed_count}/{num_pages} 页解析...")
+                            
+                            result = future.result()
+                            
+                            if result['success']:
+                                # 成功处理的页面，按索引存储结果
+                                page_infos[page_idx] = result['page_info']
+                                dotsocr_md_list[page_idx] = result['page_text'] if result['page_text'] != f"第 {result['actual_page'] + 1} 页解析失败" else None
+                                dotsocr_json_data_list[page_idx] = result['layout_info_data']
+                                dotsocr_json_list[page_idx] = None  # 不再需要文件路径
+                                dotsocr_page_list[page_idx] = result['dotsocr_page_filename']
+                                all_sections[page_idx] = (result['page_text'], result['page_image'])
+                            else:
+                                # 失败的页面，存储错误信息
+                                error_msg = result['error_msg']
+                                logging.error(error_msg)
+                                
+                                # 为失败的页面存储默认值（按索引）
+                                page_infos[page_idx] = None
+                                dotsocr_md_list[page_idx] = None
+                                dotsocr_json_data_list[page_idx] = None
+                                dotsocr_json_list[page_idx] = None
+                                dotsocr_page_list[page_idx] = None
+                                all_sections[page_idx] = (error_msg, None)
+                                
+                        except TaskCanceledException as e:
+                            # 任务取消异常需要向上传播，中断解析
+                            logging.info(f"[DotsOCR] 任务在解析第 {result.get('actual_page', page_idx) + 1} 页时被取消: {e.msg}")
+                            executor.shutdown(wait=False)  # 立即停止执行器
+                            raise e
+                        except Exception as e:
+                            # 处理其他异常
+                            actual_page = start_page + page_idx
+                            error_msg = f"解析第 {actual_page + 1} 页时出错: {str(e)}"
+                            logging.error(error_msg)
+                            
+                            # 为异常页面存储错误信息（按索引）
+                            page_infos[page_idx] = None
+                            dotsocr_md_list[page_idx] = None
+                            dotsocr_json_data_list[page_idx] = None
+                            dotsocr_json_list[page_idx] = None
+                            dotsocr_page_list[page_idx] = None
+                            all_sections[page_idx] = (error_msg, None)
+                
+                # 转换结果列表为原来代码期望的格式（过滤掉None值）
+                page_infos = [info for info in page_infos if info is not None]
+                logging.info(f"并发解析完成，成功处理 {len(page_infos)} 页")
                 
                 # 根据用户反馈，改为每页生成独立的 chunk，避免文本分割问题
                 if all_sections:
