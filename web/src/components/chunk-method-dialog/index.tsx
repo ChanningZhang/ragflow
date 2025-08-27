@@ -74,6 +74,7 @@ const hidePagesChunkMethods = [
   DocumentParserType.Resume,
   DocumentParserType.One,
   DocumentParserType.KnowledgeGraph,
+  DocumentParserType.Report,
 ];
 
 export function ChunkMethodDialog({

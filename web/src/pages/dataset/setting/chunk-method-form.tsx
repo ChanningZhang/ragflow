@@ -19,6 +19,7 @@ import { PaperConfiguration } from './configuration/paper';
 import { PictureConfiguration } from './configuration/picture';
 import { PresentationConfiguration } from './configuration/presentation';
 import { QAConfiguration } from './configuration/qa';
+import { ReportConfiguration } from './configuration/report';
 import { ResumeConfiguration } from './configuration/resume';
 import { TableConfiguration } from './configuration/table';
 import { TagConfiguration } from './configuration/tag';
@@ -39,6 +40,7 @@ const ConfigurationComponentMap = {
   [DocumentParserType.Email]: EmailConfiguration,
   [DocumentParserType.Tag]: TagConfiguration,
   [DocumentParserType.KnowledgeGraph]: KnowledgeGraphConfiguration,
+  [DocumentParserType.Report]: ReportConfiguration,
 };
 
 function EmptyComponent() {

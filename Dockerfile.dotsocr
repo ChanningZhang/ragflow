@@ -1,5 +1,39 @@
-# DotsOCR 集成的自定义 RAGFlow 镜像 - 简化版（跳过前端重新构建）
-FROM infiniflow/ragflow:v0.19.1-slim
+# DotsOCR 集成的自定义 RAGFlow 镜像 - 优化版（多阶段构建）
+
+# 前端构建阶段 - 使用与基础镜像相同的环境
+FROM infiniflow/ragflow:v0.19.1-slim AS frontend-builder
+
+# 覆盖 entrypoint 以允许执行构建命令
+ENTRYPOINT ["/bin/bash", "-c"]
+
+WORKDIR /ragflow
+
+# 首先复制 package.json 和 package-lock.json（用于缓存依赖层）
+COPY web/package*.json ./web/
+
+# 安装前端依赖（只有 package.json 变化时才重新安装）
+RUN cd web && npm install
+
+# 复制完整的 web 源码
+COPY web/ ./web/
+
+# 复制 docs 目录（前端构建需要）
+COPY docs/ ./docs/
+
+# 复制修改的前端文件（只有这些文件变化时才重新构建）
+COPY web/src/constants/knowledge.ts ./web/src/constants/knowledge.ts
+COPY web/src/pages/add-knowledge/components/knowledge-setting/configuration/report.tsx ./web/src/pages/add-knowledge/components/knowledge-setting/configuration/
+COPY web/src/pages/add-knowledge/components/knowledge-setting/configuration/index.tsx ./web/src/pages/add-knowledge/components/knowledge-setting/configuration/
+COPY web/src/pages/dataset/setting/configuration/report.tsx ./web/src/pages/dataset/setting/configuration/
+COPY web/src/pages/dataset/setting/chunk-method-form.tsx ./web/src/pages/dataset/setting/
+COPY web/src/components/chunk-method-modal/hooks.ts ./web/src/components/chunk-method-modal/
+COPY web/src/components/chunk-method-dialog/index.tsx ./web/src/components/chunk-method-dialog/
+
+# 重新构建前端（只有源码变化时才执行）
+RUN cd web && npm run build
+
+# 主构建阶段 - 让 Docker 自动处理平台兼容性
+FROM infiniflow/ragflow:v0.19.1-slim AS production
 
 USER root
 WORKDIR /ragflow
@@ -49,6 +83,7 @@ COPY api/db/services/task_service.py /ragflow/api/db/services/task_service.py
 COPY api/db/services/conversation_service.py /ragflow/api/db/services/conversation_service.py
 COPY api/db/services/canvas_service.py /ragflow/api/db/services/canvas_service.py
 COPY api/db/services/llm_service.py /ragflow/api/db/services/llm_service.py
+COPY api/db/init_data.py /ragflow/api/db/init_data.py
 
 # 复制 API 工具文件
 COPY api/utils/api_utils.py /ragflow/api/utils/api_utils.py
@@ -68,6 +103,9 @@ COPY deepdoc/parser/dotsocr_parser.py /ragflow/deepdoc/parser/dotsocr_parser.py
 COPY deepdoc/parser/monkeyocr_parser.py /ragflow/deepdoc/parser/monkeyocr_parser.py
 COPY deepdoc/parser/excel_parser.py /ragflow/deepdoc/parser/excel_parser.py
 COPY deepdoc/parser/__init__.py /ragflow/deepdoc/parser/__init__.py
+
+# 从前端构建阶段复制构建好的前端文件（替换基础镜像中的版本）
+COPY --from=frontend-builder /ragflow/web/dist /ragflow/web/dist
 
 WORKDIR /ragflow
 

@@ -536,12 +536,12 @@ class FileService(CommonService):
 
     @staticmethod
     def parse_docs(file_objs, user_id):
-        from rag.app import audio, email, naive, picture, presentation
+        from rag.app import audio, email, naive, picture, presentation, report
 
         def dummy(prog=None, msg=""):
             pass
 
-        FACTORY = {ParserType.PRESENTATION.value: presentation, ParserType.PICTURE.value: picture, ParserType.AUDIO.value: audio, ParserType.EMAIL.value: email}
+        FACTORY = {ParserType.PRESENTATION.value: presentation, ParserType.PICTURE.value: picture, ParserType.AUDIO.value: audio, ParserType.EMAIL.value: email, ParserType.REPORT.value: report}
         parser_config = {"chunk_token_num": 16096, "delimiter": "\n!?;。；！？", "layout_recognize": "Plain Text"}
         exe = ThreadPoolExecutor(max_workers=12)
         threads = []

@@ -1,0 +1,90 @@
+# Git 相关
+.git
+.gitignore
+.gitattributes
+
+# IDE 和编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# 日志文件
+*.log
+logs/
+ragflow-logs/
+
+# 临时文件和缓存
+.cache/
+.tmp/
+*.tmp
+*.temp
+flask_session/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Node.js 相关（前端构建时会重新安装）
+web/node_modules/
+web/dist/
+web/.next/
+web/build/
+web/coverage/
+
+# Python 虚拟环境
+venv/
+.venv/
+env/
+.env/
+
+# 测试相关
+test_data/
+test/
+coverage/
+.coverage
+.pytest_cache/
+.tox/
+
+# 构建产物
+*.egg-info/
+dist/
+build/
+
+# 文档（保留 docs 目录用于构建）
+*.md
+README*
+CHANGELOG*
+CONTRIBUTING*
+SECURITY*
+LICENSE*
+
+# 配置文件示例
+*.example
+*.template
+*.sample
+
+# Docker 相关
+docker-compose*.yml
+Dockerfile*
+.dockerignore
+
+# 其他开发工具
+.pre-commit-config.yaml
+.editorconfig
+.eslintrc*
+.prettierrc*
+jest.config.*
+tsconfig.json
+tailwind.config.js
+
+# 特定于项目的排除
+monkeyocr_debug/
+sandbox/
+helm/
+intergrations/
+mermaid/
+example/

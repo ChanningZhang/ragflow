@@ -364,6 +364,9 @@ def queue_tasks(doc: dict, bucket: str, name: str, priority: int):
             task["from_page"] = i
             task["to_page"] = min(i + 3000, rn)
             parse_task_array.append(task)
+    elif doc["parser_id"] == "report":
+        # Report解析器通常不需要页面选择，直接处理整个文档
+        parse_task_array.append(new_task())
     else:
         parse_task_array.append(new_task())
 
