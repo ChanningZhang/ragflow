@@ -44,8 +44,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Building C extensions: libpython3-dev libgtk-4-1 libnss3 xdg-utils libgbm-dev
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     if [ "$NEED_MIRROR" == "1" ]; then \
-        sed -i 's|http://ports.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
-        sed -i 's|http://archive.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
+        sed -i 's|http://ports.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list; \
+        sed -i 's|http://archive.ubuntu.com|http://mirrors.aliyun.com|g' /etc/apt/sources.list; \
     fi; \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
@@ -201,6 +201,15 @@ COPY agentic_reasoning agentic_reasoning
 COPY pyproject.toml uv.lock ./
 COPY mcp mcp
 COPY plugin plugin
+
+COPY dots_ocr dots_ocr
+RUN apt-get update && apt-get install -y \
+    libmupdf-dev \
+    mupdf-tools \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv add --python ${VIRTUAL_ENV}/bin/python "PyMuPDF>=1.23.0" \
+    && ${VIRTUAL_ENV}/bin/python -c "import fitz; print('PyMuPDF/fitz installed successfully, version:', fitz.__version__)"
+
 
 COPY docker/service_conf.yaml.template ./conf/service_conf.yaml.template
 COPY docker/entrypoint.sh ./

@@ -4,11 +4,12 @@ include:
 # DotsOCR 集成版 RAGFlow - 只替换 ragflow 服务为自定义镜像
 services:
   ai-core-app:
-    image: ai-core:latest
+    image: visionfin-registry.cn-hangzhou.cr.aliyuncs.com/ai/ai-core:250829.1
     container_name: ai-core-app
     platform: linux/arm64
     ports:
       - "8000:8000"
+    env_file: ./.env
     environment:
       - RAGFLOW_API_URL=http://ragflow:9380
       - RAGFLOW_API_KEY=${RAGFLOW_API_KEY}
@@ -38,7 +39,7 @@ services:
       mysql:
         condition: service_healthy
     # 使用已构建的 DotsOCR 集成镜像
-    image: ragflow-dotsocr:latest
+    image: ${RAGFLOW_IMAGE}
     # 如果需要构建，可以取消注释下面的 build 配置：
     # build:
     #   context: .
