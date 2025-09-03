@@ -275,7 +275,9 @@ class DotsOCRParser:
                 all_sections = [None] * num_pages
                 
                 # 创建线程池并发执行
-                thread_pool_size = min(4, num_pages)  # 使用配置的线程数，但不超过页面数
+                # 从环境变量读取线程池大小配置，如果没有配置则使用默认值，但不超过页面数
+                configured_thread_pool_size = int(os.environ.get('DOTSOCR_THREAD_NUM', '4'))
+                thread_pool_size = min(configured_thread_pool_size, num_pages)
                 logging.info(f"使用线程池大小: {thread_pool_size} 并发处理 {num_pages} 页")
                 
                 with ThreadPoolExecutor(max_workers=thread_pool_size) as executor:
@@ -342,7 +344,6 @@ class DotsOCRParser:
                 page_infos = [info for info in page_infos if info is not None]
                 logging.info(f"并发解析完成，成功处理 {len(page_infos)} 页")
                 
-                # 根据用户反馈，改为每页生成独立的 chunk，避免文本分割问题
                 if all_sections:
                     callback(0.9, "生成页面级别的chunks...")
                     

@@ -4,7 +4,7 @@ include:
 # DotsOCR 集成版 RAGFlow - 只替换 ragflow 服务为自定义镜像
 services:
   ai-core-app:
-    image: visionfin-registry.cn-hangzhou.cr.aliyuncs.com/ai/ai-core:250829.1
+    image: ${AICORE_IMAGE}
     container_name: ai-core-app
     platform: linux/arm64
     ports:
@@ -85,6 +85,7 @@ services:
       - DOTSOCR_MAX_TOKENS=${DOTSOCR_MAX_TOKENS:-16384}
       - DOTSOCR_THREADS=${DOTSOCR_THREADS:-4}
       - DOTSOCR_DPI=${DOTSOCR_DPI:-200}
+      - DOTSOCR_THREAD_NUM=4
     networks:
       - ragflow
     restart: on-failure

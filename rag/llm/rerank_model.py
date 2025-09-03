@@ -411,10 +411,16 @@ class CoHereRerank(Base):
         )
         rank = np.zeros(len(texts), dtype=float)
         try:
+            # 检查 res.results 是否为 None
+            if res.results is None:
+                raise ValueError(f"Model {self.model_name} does not support Rerank API or returned None results")
+            
             for d in res.results:
                 rank[d.index] = d.relevance_score
         except Exception as _e:
             log_exception(_e, res)
+            # 如果出现错误，返回零分数数组而不是崩溃
+            return rank, token_count
         return rank, token_count
 
 
@@ -625,6 +631,72 @@ class GPUStackRerank(Base):
         except httpx.HTTPStatusError as e:
             raise ValueError(
                 f"Error calling GPUStackRerank model {self.model_name}: {e.response.status_code} - {e.response.text}")
+
+
+class VLLMRerank(Base):
+    def __init__(self, key, model_name, base_url):
+        if base_url.find("/v1/rerank") == -1:
+            if base_url.find("/v1") == -1:
+                self.base_url = urljoin(base_url, "/v1/rerank")
+            else:
+                self.base_url = urljoin(base_url, "/rerank")
+        else:
+            self.base_url = base_url
+        self.headers = {
+            "Content-Type": "application/json",
+            "accept": "application/json"
+        }
+        if key and key != "x":
+            self.headers["Authorization"] = f"Bearer {key}"
+        self.model_name = model_name.split("___")[0]
+
+    def similarity(self, query: str, texts: list):
+        if len(texts) == 0:
+            return np.array([]), 0
+        
+        # 截断文本以避免超出模型限制
+        texts = [truncate(t, 4096) for t in texts]
+        token_count = 0
+        for t in texts:
+            token_count += num_tokens_from_string(t)
+        
+        data = {
+            "model": self.model_name,
+            "query": query,
+            "documents": texts,
+            "top_n": len(texts),
+            "return_documents": False
+        }
+        
+        try:
+            response = requests.post(self.base_url, headers=self.headers, json=data)
+            response.raise_for_status()
+            res = response.json()
+            
+            rank = np.zeros(len(texts), dtype=float)
+            
+            # 检查响应是否包含错误
+            if "error" in res:
+                error_msg = res.get("message", "Unknown error")
+                raise ValueError(f"vLLM rerank error: {error_msg}")
+            
+            # 检查是否有 results 字段
+            if "results" not in res or res["results"] is None:
+                raise ValueError(f"Model {self.model_name} does not support Rerank API or returned invalid response")
+            
+            for d in res["results"]:
+                rank[d["index"]] = d["relevance_score"]
+                
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP error calling vLLM rerank: {e.response.status_code} - {e.response.text}"
+            log_exception(e, {"status_code": e.response.status_code, "response": e.response.text})
+            raise ValueError(error_msg)
+        except Exception as _e:
+            log_exception(_e, res if 'res' in locals() else {"error": str(_e)})
+            # 返回零分数数组而不是崩溃
+            rank = np.zeros(len(texts), dtype=float)
+            
+        return rank, token_count
 
 
 class NovitaRerank(JinaRerank):
